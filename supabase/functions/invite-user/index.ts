@@ -30,10 +30,12 @@ export default {
       return Response.json({ error: "Enter a valid email address." }, { status: 400 });
     }
 
-    // The invite link lands back on the frontend the admin is using
-    // (localhost in dev, GitHub Pages in production). Must be in the
-    // project's allowed Redirect URLs.
-    const redirectTo = req.headers.get("origin") ?? undefined;
+    // The invite link lands back on the page the admin is using (localhost in
+    // dev, GitHub Pages in production — which lives under a sub-path, so the
+    // Origin header alone isn't enough). Supabase only honours it if it
+    // matches the project's allowed Redirect URLs; otherwise it uses Site URL.
+    const redirectTo =
+      typeof body.redirectTo === "string" ? body.redirectTo : req.headers.get("origin") ?? undefined;
 
     const { error } = await ctx.supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       redirectTo,

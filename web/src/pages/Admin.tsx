@@ -88,7 +88,9 @@ function Invite() {
     e.preventDefault();
     setPending(true);
     setResult(null);
-    const { error } = await supabase.functions.invoke("invite-user", { body: { email } });
+    const { error } = await supabase.functions.invoke("invite-user", {
+      body: { email, redirectTo: window.location.origin + window.location.pathname },
+    });
     if (error) {
       const body = error instanceof FunctionsHttpError ? await error.context.json().catch(() => null) : null;
       setResult({ ok: false, message: body?.error ?? "Couldn't send the invite." });
