@@ -10,3 +10,7 @@ supabase/.branches
 
 # Claude Code per-user settings
 .claude/settings.local.json
+
+# Protocol book text and generated pieces (copyrighted — never commit)
+reference/out/
+reference/source/
