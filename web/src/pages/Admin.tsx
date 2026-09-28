@@ -8,14 +8,83 @@ import { supabase, type Profile } from "../lib/supabase";
 export default function Admin() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-10 p-6">
-      <Instructions />
+      <ModelPicker />
+      <SettingEditor
+        settingKey="system_instructions"
+        title="System instructions"
+        description="Sent with every chat message. Changes apply immediately."
+        rows={16}
+        heading
+      />
+      <SettingEditor
+        settingKey="scenario_examples"
+        title="Exam scenario examples"
+        description="Real past exam scenarios. The AI uses them only as examples of style and difficulty when inventing a new scenario — never copies them."
+        rows={10}
+      />
       <Invite />
       <Users />
     </main>
   );
 }
 
-function Instructions() {
+const MODELS = [
+  { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite — free, ~500 requests/day" },
+  { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash — stronger, free tier only 20 requests/day" },
+  { value: "stub", label: "Test mode — no AI, shows which book pages would be sent" },
+];
+
+function ModelPicker() {
+  const [model, setModel] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "model")
+      .single()
+      .then(({ data }) => setModel(data?.value ?? null));
+  }, []);
+
+  async function change(value: string) {
+    setModel(value);
+    setSaved(false);
+    const { error } = await supabase.from("settings").update({ value }).eq("key", "model");
+    setSaved(!error);
+  }
+
+  return (
+    <section className="space-y-2">
+      <h2 className="text-xl font-semibold">AI model</h2>
+      <div className="flex items-center gap-3">
+        <select
+          value={model ?? ""}
+          disabled={model === null}
+          onChange={(e) => change(e.target.value)}
+          className="input"
+        >
+          {model !== null && !MODELS.some((m) => m.value === model) && <option value={model}>{model}</option>}
+          {MODELS.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+        {saved && <span className="text-sm text-green-600">Saved — applies to the next message.</span>}
+      </div>
+    </section>
+  );
+}
+
+function SettingEditor(props: {
+  settingKey: string;
+  title: string;
+  description: string;
+  rows: number;
+  heading?: boolean;
+}) {
+  const { settingKey } = props;
   const [text, setText] = useState("");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<"loading" | "idle" | "saving" | "saved" | "error">("loading");
@@ -24,7 +93,7 @@ function Instructions() {
     supabase
       .from("settings")
       .select("value, updated_at")
-      .eq("key", "system_instructions")
+      .eq("key", settingKey)
       .single()
       .then(({ data, error }) => {
         if (error) return setStatus("error");
@@ -32,7 +101,7 @@ function Instructions() {
         setUpdatedAt(data.updated_at);
         setStatus("idle");
       });
-  }, []);
+  }, [settingKey]);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -40,7 +109,7 @@ function Instructions() {
     const { data, error } = await supabase
       .from("settings")
       .update({ value: text })
-      .eq("key", "system_instructions")
+      .eq("key", settingKey)
       .select("updated_at")
       .single();
     if (error) return setStatus("error");
@@ -48,16 +117,17 @@ function Instructions() {
     setStatus("saved");
   }
 
+  const Title = props.heading ? "h1" : "h2";
   return (
     <section className="space-y-3">
-      <h1 className="text-2xl font-semibold">System instructions</h1>
+      <Title className={props.heading ? "text-2xl font-semibold" : "text-xl font-semibold"}>{props.title}</Title>
       <p className="text-sm text-neutral-500">
-        Sent with every chat message. Changes apply immediately.
+        {props.description}
         {updatedAt && <> Last saved {new Date(updatedAt).toLocaleString("en-GB")}.</>}
       </p>
       <form onSubmit={save} className="space-y-2">
         <textarea
-          rows={16}
+          rows={props.rows}
           dir="auto"
           disabled={status === "loading"}
           value={text}
