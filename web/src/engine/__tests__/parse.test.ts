@@ -107,3 +107,11 @@ describe("protocol actions", () => {
     expect(a("יש לך אסתמה?")).toEqual(["askHistory"]);
   });
 });
+
+describe("delivery-room consult", () => {
+  it("is a consult, but transport to the delivery room is not", () => {
+    const a = (s: string) => parse(s).items.map((i) => (i.kind === "action" ? i.id : i.drug));
+    expect(a("מתקשר לחדר לידה")).toEqual(["consultDoc"]);
+    expect(a("מפנה לחדר לידה")).not.toContain("consultDoc");
+  });
+});
