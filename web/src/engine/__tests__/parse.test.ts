@@ -115,3 +115,33 @@ describe("delivery-room consult", () => {
     expect(a("מפנה לחדר לידה")).not.toContain("consultDoc");
   });
 });
+
+describe("phrasing sweep regressions", () => {
+  const a = (s: string) => parse(s).items.map((i) => (i.kind === "action" ? i.id : i.drug));
+  it("slang never turns into a drug", () => {
+    expect(a("דקסטרו")).toEqual(["glucose"]);
+    expect(a("מנתב אוויר אפי")).toEqual(["opa"]);
+  });
+  it("near-miss words don't trigger other actions", () => {
+    expect(a("סופרת נשימות")).toEqual(["rr"]);
+    expect(a("מקשיבה לריאות")).toEqual(["lungs"]);
+    expect(a("מתחילה להנשים")).toEqual(["bvm"]);
+    expect(a("נסיבות האירוע")).toEqual(["askEvents"]);
+  });
+  it("'אין צורך' is a negation, but 'אין דופק' still lets the next action through", () => {
+    expect(a("אין צורך באינטובציה")).toEqual([]);
+    expect(a("אין דופק, מתחיל עיסויים")).toEqual(["cpr"]);
+  });
+  it("a concentration isn't a dose", () => {
+    expect(parse("גלוקוז 25% 100 מל").items[0]).toMatchObject({ drug: "dextrose", value: 100, unit: "ml" });
+  });
+  it("reads everyday wording found in the sweep", () => {
+    expect(a("לייף פאק")).toEqual(["monitor"]);
+    expect(a("איי ג'ל")).toEqual(["sga"]);
+    expect(a("מפרפר 200 ג'ול")).toEqual(["shock"]);
+    expect(a("מתקשר למיון")).toEqual(["prealert"]);
+    expect(a("רגיש לתרופות?")).toEqual(["askAllergies"]);
+    expect(a("סטרואידים")).toEqual(["methylpred"]);
+    expect(a("הגענו לבית החולים")).toEqual(["end"]);
+  });
+});

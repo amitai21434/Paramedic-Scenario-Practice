@@ -38,7 +38,8 @@ export function normalize(text: string): string {
 }
 
 export function tokenize(text: string): string[] {
-  const norm = normalize(text);
+  // A concentration ("גלוקוז 25% 100 מל") isn't a dose.
+  const norm = normalize(text).replace(/\d+(?:[.,]\d+)?\s*%/g, " ");
   const raw = norm.match(/\d+(?:[.,]\d+)?|[a-z0-9µ]+|[א-ת]+|\//g) ?? [];
   return raw
     .map((t) => (/^\d+,\d{1,2}$/.test(t) ? t.replace(",", ".") : t.replace(",", "")))
@@ -75,7 +76,7 @@ function distance(a: string, b: string, max: number): number {
 }
 
 // Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
-const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע"].map(normalize));
+const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי"].map(normalize));
 
 /** 0 = exact, 1 = typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
