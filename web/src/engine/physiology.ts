@@ -82,6 +82,15 @@ export function effectiveVitals(sim: Sim): Vitals {
     const boost = flags.has("intubated") || flags.has("cpap") ? 8 : flags.has("o2") ? 4 : 0;
     v.spo2 = Math.min(Math.max(v.spo2, Math.min(98, v.spo2 + boost)), 100);
   }
+  // An unresolved complication (vomiting, a displaced tube…) shifts what's measured.
+  if (sim.comp && sim.comp.resolvedAt === null) {
+    for (const [k, d] of Object.entries(sim.comp.vitals) as [keyof Vitals, number][]) {
+      const x = v[k];
+      if (x !== null) v[k] = Math.round((x + d) * 10) / 10;
+    }
+    if (v.spo2 !== null) v.spo2 = Math.max(40, Math.min(100, v.spo2));
+    if (v.etco2 !== null) v.etco2 = Math.max(0, v.etco2);
+  }
   if (v.sbp !== null && v.dbp !== null && v.dbp >= v.sbp) v.dbp = Math.round(v.sbp * 0.6);
   if (v.gcs !== null) v.gcs = Math.max(3, Math.min(15, v.gcs));
   return v;
@@ -104,6 +113,8 @@ export function minSbp(age: number): number {
 /** The finding text for a body-system check: the state's own text, else a default consistent with the vitals. */
 export function finding(sim: Sim, key: FindingKey): string {
   const { def, vitals, pulse } = snapshot(sim);
+  const comp = sim.comp && sim.comp.resolvedAt === null ? sim.comp.findings[key] : undefined;
+  if (comp !== undefined) return comp;
   const own = def.findings?.[key];
   if (own !== undefined) return resolve(own, sim.case);
   return resolve(defaultFinding(key, vitals, pulse, new Set(sim.flags), sim.case.age), sim.case);

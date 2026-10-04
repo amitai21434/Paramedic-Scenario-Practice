@@ -25,6 +25,8 @@ export type Debrief = {
     unmatched: { t: number; text: string }[];
   };
   score: { done: number; total: number; criticalMissed: number };
+  /** The random complication that happened this run, if any. */
+  complication: { title: string; at: number; resolvedAt: number | null } | null;
 };
 
 const OUTCOMES: Record<NonNullable<Sim["ended"]>["how"], string> = {
@@ -87,6 +89,9 @@ export function debrief(content: Content, sim: Sim): Debrief {
 
   return {
     title: c.title,
+    complication: sim.comp
+      ? { title: content.complications?.[sim.comp.id]?.title ?? sim.comp.id, at: sim.comp.t, resolvedAt: sim.comp.resolvedAt }
+      : null,
     diagnosis: { items, rhythms, unmatched },
     patient: g(
       `${c.age < 1 ? "[[תינוק|תינוקת]]" : c.age < 16 ? "[[ילד|ילדה]]" : "[[גבר|אישה]]"} [[בן|בת]] ${ageText(c.age)}, ${c.weight} ק"ג. ` +

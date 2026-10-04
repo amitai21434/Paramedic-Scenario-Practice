@@ -68,7 +68,10 @@ export function weightForAge(r: Rng, age: number, sex: Sex): number {
 export function resolve(text: Text | undefined, c: Pick<Case, "sex" | "facts" | "age" | "weight">): string {
   if (text === undefined) return "";
   const s = typeof text === "string" ? text : c.facts.includes(text.if) ? text.then : text.else;
+  // {who}: how the examiner refers to this patient (the baby / the child / the patient).
+  const who = c.age < 1 ? "[[התינוק|התינוקת]]" : c.age < 16 ? "[[הילד|הילדה]]" : "[[המטופל|המטופלת]]";
   return s
+    .replace(/\{who\}/g, who)
     .replace(/\[\[([^|\]]*)\|([^\]]*)\]\]/g, (_, m, f) => (c.sex === "m" ? m : f))
     .replace(/\{age\}/g, ageText(c.age))
     .replace(/\{weight\}/g, String(c.weight));

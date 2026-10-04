@@ -1,5 +1,5 @@
 // Bundles the private scenario content (content/ — git-ignored) into the one
-// JSON object the website loads: { cases, drugs, protocols }.
+// JSON object the website loads: { cases, drugs, protocols, complications }.
 //
 //   node reference/content.mjs            prints the bundle as JSON
 //
@@ -55,8 +55,12 @@ export async function buildBundle() {
   const extra = path.join(contentDir, "protocols.mjs");
   if (fs.existsSync(extra)) Object.assign(protocols, await load(extra));
 
+  // Random complications shared by all scenarios (content/complications.mjs).
+  const compFile = path.join(contentDir, "complications.mjs");
+  const complications = fs.existsSync(compFile) ? await load(compFile) : {};
+
   // JSON round-trip drops functions/undefined and catches anything unserializable.
-  return JSON.parse(JSON.stringify({ cases, drugs, protocols }));
+  return JSON.parse(JSON.stringify({ cases, drugs, protocols, complications }));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {

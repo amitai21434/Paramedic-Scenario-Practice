@@ -18,6 +18,7 @@ import type {
   Num,
   Rule,
   Sim,
+  Text,
   VitalKey,
   Vitals,
 } from "./types";
@@ -49,10 +50,24 @@ export function pickTemplate(content: Content, station: string | null, recent: s
   return from[Math.floor(r() * from.length)].id;
 }
 
-export function startSim(content: Content, templateId: string, seed: number, variantId?: string): Sim {
+/** `complications`: ids that may appear this run (from rollComplication); none by default. */
+export function startSim(content: Content, templateId: string, seed: number, variantId?: string, complications?: string[] | null): Sim {
   const template = content.cases.find((c) => c.id === templateId);
   if (!template) throw new Error(`Unknown scenario ${templateId}`);
   const c = generate(template, seed, variantId);
+  const ids = (complications ?? []).filter((id) => content.complications?.[id]);
+  if (ids.length) {
+    const at = rng((seed ^ 0x2545f491) >>> 0).int(90, 420);
+    c.complication = { ids, at, until: at + 900 };
+    // Each complication's debrief items count only if it actually happened.
+    const extra = ids.flatMap((id) =>
+      content.complications![id].checklist.map((item) => ({
+        ...item,
+        onlyIf: item.onlyIf ? { all: [{ comp: id }, item.onlyIf] } : { comp: id },
+      })),
+    );
+    c.template = { ...c.template, checklist: [...c.template.checklist, ...extra] };
+  }
   const sim: Sim = {
     case: c,
     t: 0,
@@ -220,6 +235,64 @@ function end(sim: Sim, how: NonNullable<Sim["ended"]>["how"]) {
 }
 
 function applyRules(content: Content, sim: Sim, out: Output) {
+  applyStateRules(content, sim, out);
+  complicationTick(content, sim, out);
+}
+
+/** Starts, resolves or worsens this run's complication (see ComplicationDef). */
+function complicationTick(content: Content, sim: Sim, out: Output) {
+  const plan = sim.case.complication;
+  if (!plan || sim.ended) return;
+  const say = (t: Text | undefined) => t && out.text(resolve(t, sim.case));
+  if (!sim.comp) {
+    if (sim.t < plan.at || sim.t > plan.until) return;
+    for (const id of plan.ids) {
+      const def = content.complications?.[id];
+      if (!def || !evalCond(content, sim, def.eligible)) continue;
+      for (const f of def.clearFlags ?? []) setFlag(sim, f, false);
+      sim.comp = { id, t: sim.t, n: sim.actions.length, resolvedAt: null, worse: false, vitals: { ...def.vitals }, findings: resolveFindings(sim, def.findings) };
+      say(def.say);
+      return;
+    }
+    return;
+  }
+  const comp = sim.comp;
+  const def = content.complications?.[comp.id];
+  if (!def || comp.resolvedAt !== null) return;
+  if (evalCond(content, sim, def.resolvedWhen)) {
+    comp.resolvedAt = sim.t;
+    say(def.resolvedSay);
+  } else if (def.worsen && !comp.worse && sim.t - comp.t >= def.worsen.after) {
+    comp.worse = true;
+    for (const [k, d] of Object.entries(def.worsen.vitals ?? {}) as [VitalKey, number][]) comp.vitals[k] = (comp.vitals[k] ?? 0) + d;
+    Object.assign(comp.findings, resolveFindings(sim, def.worsen.findings));
+    say(def.worsen.say);
+  }
+}
+
+function resolveFindings(sim: Sim, f: Partial<Record<FindingKey, Text>> | undefined): Partial<Record<FindingKey, string>> {
+  return Object.fromEntries(Object.entries(f ?? {}).map(([k, v]) => [k, resolve(v as Text, sim.case)]));
+}
+
+/**
+ * Rolls whether this run gets a complication (about one in three) and which
+ * ones may appear, in random order. Deterministic for a seed.
+ */
+export function rollComplication(content: Content, templateId: string, seed: number, variantId?: string, chance = 0.35): string[] | null {
+  const template = content.cases.find((c) => c.id === templateId);
+  const allowed = template ? generate(template, seed, variantId).template.complications : undefined;
+  if (allowed === false) return null;
+  const ids = Object.keys(content.complications ?? {}).filter((id) => !allowed || allowed.includes(id));
+  const r = rng((seed ^ 0x5bd1e995) >>> 0);
+  if (!ids.length || r.next() >= chance) return null;
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = r.int(0, i);
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  return ids;
+}
+
+function applyStateRules(content: Content, sim: Sim, out: Output) {
   for (let hop = 0; hop < 6 && !sim.ended; hop++) {
     const stateRules = (current(sim).rules ?? []).map((rule, i) => ({ rule, key: `s:${i}` }));
     const globalRules = (sim.case.template.rules ?? []).map((rule, i) => ({ rule, key: `g:${i}` }));
@@ -269,11 +342,15 @@ export function evalCond(content: Content, sim: Sim, c: Cond): boolean {
   if ("all" in c) return c.all.every((x) => evalCond(content, sim, x));
   if ("any" in c) return c.any.some((x) => evalCond(content, sim, x));
   if ("not" in c) return !evalCond(content, sim, c.not);
+  if ("comp" in c) return sim.comp?.id === c.comp && (c.resolved === undefined || (sim.comp.resolvedAt !== null) === c.resolved);
+  // Actions performed after the complication started (by position, so a same-second action before it doesn't count).
+  const afterComp = (i: number) => sim.comp != null && i >= sim.comp.n;
   if ("done" in c) {
     const n = sim.actions.filter(
-      (a) =>
+      (a, i) =>
         a.action === c.done &&
         (!c.sinceState || a.t >= sim.stateSince) &&
+        (!c.sinceComp || afterComp(i)) &&
         (!c.joules || (a.joules !== undefined && a.joules >= c.joules[0] && a.joules <= c.joules[1])) &&
         (!c.joulesPerKg ||
           (a.joules !== undefined &&
@@ -283,7 +360,7 @@ export function evalCond(content: Content, sim: Sim, c: Cond): boolean {
     return n >= num(sim, c.min, 1);
   }
   if ("drug" in c) {
-    const given = sim.actions.filter((a) => a.drug?.drug === c.drug && (!c.sinceState || a.t >= sim.stateSince));
+    const given = sim.actions.filter((a, i) => a.drug?.drug === c.drug && (!c.sinceState || a.t >= sim.stateSince) && (!c.sinceComp || afterComp(i)));
     if (c.min === undefined) return given.length > 0;
     return totalDose(content, sim, c.drug, given.map((a) => a.drug!)) >= num(sim, c.min, 0);
   }
@@ -658,7 +735,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       record();
       if (flags.has("iv")) return say("כבר יש וריד פתוח.");
       setFlag(sim, "iv");
-      return say("וריד פתוח (G18) עם סליין לשמירת וריד.");
+      return say(`וריד פתוח (${c.age < 1 ? "G24" : c.age < 8 ? "G22" : c.age < 16 ? "G20" : "G18"}) עם סליין לשמירת וריד.`);
     case "io":
       record();
       setFlag(sim, "io");

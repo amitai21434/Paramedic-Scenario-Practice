@@ -5,7 +5,7 @@
 import { withVariant } from "./generate";
 import { ACTIONS, DRUGS } from "./lexicon";
 import { RHYTHMS } from "./physiology";
-import type { CaseTemplate, Cond, Content, Rule } from "./types";
+import type { CaseTemplate, Cond, Content, Rule, VitalKey } from "./types";
 
 const ACTION_IDS = new Set(ACTIONS.map((a) => a.id));
 const DRUG_IDS = new Set(DRUGS.map((d) => d.id));
@@ -18,14 +18,27 @@ const FLAGS = new Set([
 export function validate(content: Content): string[] {
   const problems: string[] = [];
   for (const [id] of Object.entries(content.drugs)) if (!DRUG_IDS.has(id)) problems.push(`drugs.mjs: unknown drug "${id}"`);
+  const comps = new Set(Object.keys(content.complications ?? {}));
   for (const base of content.cases) {
     const variants = base.variants?.length ? base.variants.map((v) => v.id) : [null];
-    for (const v of variants) checkTemplate(withVariant(base, v), `${base.id}${v ? `/${v}` : ""}`, problems);
+    for (const v of variants) checkTemplate(withVariant(base, v), `${base.id}${v ? `/${v}` : ""}`, problems, comps);
+  }
+  // A complication is checked as a stand-alone template with no states of its own.
+  for (const [id, d] of Object.entries(content.complications ?? {})) {
+    const where = `complication ${id}`;
+    const fake = { id, states: {}, initial: "", dispatch: ["-"], scene: ["-"], diagnoses: [{ label: "-", words: [] }], checklist: d.checklist } as unknown as CaseTemplate;
+    const before = problems.length;
+    checkTemplate({ ...fake, rules: [{ when: d.eligible }, { when: d.resolvedWhen }] }, where, problems, comps);
+    // The fake template has no initial state; that one complaint isn't real.
+    problems.splice(before, problems.length - before, ...problems.slice(before).filter((p) => !p.includes("initial state")));
+    for (const f of d.clearFlags ?? []) if (!FLAGS.has(f)) problems.push(`${where}: unknown flag "${f}"`);
+    const keys = [...Object.keys(d.vitals ?? {}), ...Object.keys(d.worsen?.vitals ?? {})] as VitalKey[];
+    for (const k of keys) if (!["hr", "sbp", "dbp", "rr", "spo2", "etco2", "glucose", "temp", "gcs"].includes(k)) problems.push(`${where}: unknown vital "${k}"`);
   }
   return problems;
 }
 
-function checkTemplate(t: CaseTemplate, where: string, problems: string[]) {
+function checkTemplate(t: CaseTemplate, where: string, problems: string[], comps: Set<string>) {
   const p = (msg: string) => problems.push(`${where}: ${msg}`);
   const states = t.states ?? {};
   const vars = new Set(Object.keys(t.vars ?? {}));
@@ -55,6 +68,8 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[]) {
     } else if ("state" in c || "visited" in c) {
       const s = "state" in c ? c.state : c.visited;
       if (!states[s]) p(`${ctx}: unknown state "${s}"`);
+    } else if ("comp" in c) {
+      if (!comps.has(c.comp)) p(`${ctx}: unknown complication "${c.comp}"`);
     } else if (!("fact" in c || "vital" in c || "pulse" in c || "sex" in c)) p(`${ctx}: unrecognized condition ${JSON.stringify(c)}`);
   };
   const rule = (r: Rule, ctx: string) => {
@@ -84,6 +99,7 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[]) {
     cond(c.when, `checklist ${i} (${c.label})`);
     if (c.onlyIf) cond(c.onlyIf, `checklist ${i} onlyIf`);
   });
+  if (Array.isArray(t.complications)) for (const c of t.complications) if (!comps.has(c)) p(`unknown complication "${c}"`);
   for (const [action, a] of Object.entries(t.actions ?? {})) {
     if (!ACTION_IDS.has(action)) p(`actions: unknown action "${action}"`);
     a.before?.forEach((b, i) => cond(b.when, `action ${action} before ${i}`));

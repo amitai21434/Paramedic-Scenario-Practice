@@ -77,9 +77,11 @@ export type Num = number | string;
 
 export type Cond =
   /** Action performed at least `min` times (default 1). `sinceState`: only count since entering the current state. */
-  | { done: string; min?: Num; sinceState?: boolean; joules?: [number, number]; joulesPerKg?: [number, number] }
-  /** Total drug dose given ≥ min (in the rule's unit; default: any dose). */
-  | { drug: string; min?: Num; sinceState?: boolean }
+  | { done: string; min?: Num; sinceState?: boolean; sinceComp?: boolean; joules?: [number, number]; joulesPerKg?: [number, number] }
+  /** Total drug dose given ≥ min (in the rule's unit; default: any dose). sinceComp: only since the complication started. */
+  | { drug: string; min?: Num; sinceState?: boolean; sinceComp?: boolean }
+  /** This complication has started (and, with resolved, has / hasn't been dealt with). */
+  | { comp: string; resolved?: boolean }
   /** An ongoing intervention is active (cpr, o2, iv, monitor, cpap, pacing, intubated, …). */
   | { flag: string }
   /** An intervention has been running for at least `sec` seconds (e.g. cooling for 5 minutes). */
@@ -223,14 +225,42 @@ export type CaseTemplate = {
   checklist: ChecklistItem[];
   /** What the student could name (shown in the debrief; never counted as a mistake). */
   diagnoses?: Diagnosis[];
+  /** Which random complications may appear: a list of ids, or false for none. Default: any whose conditions fit. */
+  complications?: string[] | false;
   /** Variants pick a sub-story; their fields are deep-merged over the template. */
   variants?: ({ id: string; w?: number; title?: string } & DeepPartial<Omit<CaseTemplate, "variants" | "id">>)[];
 };
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
 
+/**
+ * A reusable twist that can appear once during a scenario (the patient vomits,
+ * the IV is lost…). It starts at the first moment "eligible" holds after a
+ * random time, changes the measured vitals and findings until resolved, and
+ * adds its own debrief items (shown only when it happened).
+ */
+export type ComplicationDef = {
+  /** For the debrief, e.g. "הקאה ואיום על נתיב האוויר". */
+  title: string;
+  eligible: Cond;
+  /** Examiner says this when it starts. */
+  say: Text;
+  /** Interventions that stop working (iv, o2, intubated…). */
+  clearFlags?: string[];
+  /** Added to the measured vitals while unresolved. */
+  vitals?: Partial<Record<VitalKey, number>>;
+  /** Override the state's findings while unresolved. */
+  findings?: Partial<Record<FindingKey, Text>>;
+  resolvedWhen: Cond;
+  resolvedSay?: Text;
+  /** If still unresolved after "after" seconds, it gets worse (once). */
+  worsen?: { after: number; say?: Text; vitals?: Partial<Record<VitalKey, number>>; findings?: Partial<Record<FindingKey, Text>> };
+  checklist: ChecklistItem[];
+};
+
 export type Content = {
   cases: CaseTemplate[];
+  complications?: Record<string, ComplicationDef>;
   /** Generic drug rules (contraindications etc.); a case's own rules are merged over these. */
   drugs: Record<string, DrugRule>;
   /** Protocol id → title, for the debrief. */
@@ -264,6 +294,8 @@ export type Case = {
   bystander: string | null;
   /** The resolved template (variant merged in). */
   template: CaseTemplate;
+  /** Complications that may start (first eligible wins) between at and until seconds. */
+  complication?: { ids: string[]; at: number; until: number } | null;
 };
 
 export type Vitals = Record<VitalKey, number | null>;
@@ -330,5 +362,16 @@ export type Sim = {
   /** Checklist index → time it was first satisfied. */
   checks: Record<number, number>;
   ended: null | { how: "transport" | "end" | "death" | "good" | "bad"; t: number };
+  /** The complication that started, with its current effect on vitals and findings. */
+  comp?: {
+    id: string;
+    t: number;
+    /** Number of actions recorded when it started. */
+    n: number;
+    resolvedAt: number | null;
+    worse: boolean;
+    vitals: Partial<Record<VitalKey, number>>;
+    findings: Partial<Record<FindingKey, string>>;
+  } | null;
   transportAt: number | null;
 };

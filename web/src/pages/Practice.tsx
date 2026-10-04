@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { MonitorStrip, PaperStrip, TwelveLead } from "../components/Ecg";
 import { debrief } from "../engine/debrief";
-import { clock, ecgSnapshot, pickTemplate, startSim, step } from "../engine/engine";
+import { clock, ecgSnapshot, pickTemplate, rollComplication, startSim, step } from "../engine/engine";
 import { effectiveVitals } from "../engine/physiology";
 import type { Content, Message, Sim } from "../engine/types";
 import { loadContent, logUnrecognized } from "../lib/content";
@@ -56,7 +56,7 @@ export default function Practice() {
     const id = pickTemplate(content, station || null, recent);
     const seed = crypto.getRandomValues(new Uint32Array(1))[0];
     save(RECENT_KEY, [id, ...recent].slice(0, 2));
-    update(startSim(content, id, seed));
+    update(startSim(content, id, seed, undefined, rollComplication(content, id, seed)));
     setInput("");
   }
 
@@ -303,6 +303,12 @@ function DebriefView({ content, sim, onNew }: { content: Content; sim: Sim; onNe
         <h2 className="text-lg font-semibold">{d.title}</h2>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">{d.patient}</p>
         <p className="mt-1 text-sm">{d.outcome}</p>
+        {d.complication && (
+          <p className="mt-1 text-sm">
+            ⚡ סיבוך במהלך התרחיש: {d.complication.title} ({clock(d.complication.at)})
+            {d.complication.resolvedAt !== null ? ` — טופל ב־${clock(d.complication.resolvedAt)}` : " — לא טופל"}
+          </p>
+        )}
       </div>
 
       <div>
