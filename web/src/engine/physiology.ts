@@ -94,17 +94,24 @@ export function snapshot(sim: Sim): Snapshot {
   return { def, vitals: effectiveVitals(sim), pulse: hasPulse(def) };
 }
 
+/** Lowest normal systolic BP for age (protocol 04-04): 70 under 1, 70 + 2×age up to 10, then 90. */
+export function minSbp(age: number): number {
+  if (age < 1) return 70;
+  if (age < 10) return 70 + 2 * Math.floor(age);
+  return 90;
+}
+
 /** The finding text for a body-system check: the state's own text, else a default consistent with the vitals. */
 export function finding(sim: Sim, key: FindingKey): string {
   const { def, vitals, pulse } = snapshot(sim);
   const own = def.findings?.[key];
   if (own !== undefined) return resolve(own, sim.case);
-  return resolve(defaultFinding(key, vitals, pulse, new Set(sim.flags)), sim.case);
+  return resolve(defaultFinding(key, vitals, pulse, new Set(sim.flags), sim.case.age), sim.case);
 }
 
-function defaultFinding(key: FindingKey, v: Vitals, pulse: boolean, flags: Set<string>): string {
+function defaultFinding(key: FindingKey, v: Vitals, pulse: boolean, flags: Set<string>, age: number): string {
   const gcs = v.gcs ?? 15;
-  const shock = v.sbp !== null && v.sbp < 90;
+  const shock = v.sbp !== null && v.sbp < minSbp(age);
   if (!pulse) {
     const arrest: Partial<Record<FindingKey, string>> = {
       general: "[[המטופל|המטופלת]] שוכב[[|ת]] ללא תגובה, [[כחלחל|כחלחלה]]",
@@ -150,8 +157,26 @@ function defaultFinding(key: FindingKey, v: Vitals, pulse: boolean, flags: Set<s
       return "בטן רכה, לא רגישה";
     case "pupils":
       return "אישונים שווים ומגיבים לאור";
+    case "vaginal":
+      return "ללא דימום";
+    case "mouth":
+      return "חלל הפה נקי, ללא נפיחות";
+    case "newborn":
+      return "אין יילוד";
+    case "head":
+      return "ללא סימני חבלה בראש ובפנים";
+    case "neck":
+      return "קנה במרכז, ללא גודש ורידי צוואר, ללא רגישות";
+    case "pelvis":
+      return "אגן יציב, לא רגיש";
+    case "limbs":
+      return "ללא עיוותים או סימני חבלה בגפיים";
+    case "back":
+      return "ללא סימני חבלה או רגישות בגב";
+    case "burns":
+      return "אין כוויות";
     case "neuro":
-      return gcs <= 8 ? "לא ניתן לבצע — [[אינו משתף|אינה משתפת]] פעולה" : "ללא סימנים צדדיים, כוח שווה בארבע הגפיים";
+      return gcs <= 8 ?"לא ניתן לבצע — [[אינו משתף|אינה משתפת]] פעולה" : "ללא סימנים צדדיים, כוח שווה בארבע הגפיים";
   }
 }
 

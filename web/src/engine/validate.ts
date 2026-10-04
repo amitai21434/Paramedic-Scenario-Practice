@@ -9,7 +9,11 @@ import type { CaseTemplate, Cond, Content, Rule } from "./types";
 
 const ACTION_IDS = new Set(ACTIONS.map((a) => a.id));
 const DRUG_IDS = new Set(DRUGS.map((d) => d.id));
-const FLAGS = new Set(["cpr", "o2", "iv", "io", "monitor", "spo2probe", "capno", "cpap", "intubated", "sga", "bvm", "pacing", "sitting", "transport", "lucas", "sedated"]);
+const FLAGS = new Set([
+  "cpr", "o2", "iv", "io", "monitor", "spo2probe", "capno", "cpap", "intubated", "sga", "bvm", "pacing",
+  "sitting", "side", "transport", "lucas", "sedated", "cooling", "warming", "uterineMassage",
+  "tourniquet", "pressure", "pelvicBinder", "chestSeal", "splint", "burnDress", "cSpine",
+]);
 
 export function validate(content: Content): string[] {
   const problems: string[] = [];
@@ -41,6 +45,9 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[]) {
       num(c.min, ctx);
     } else if ("flag" in c) {
       if (!FLAGS.has(c.flag)) p(`${ctx}: unknown flag "${c.flag}"`);
+    } else if ("flagFor" in c) {
+      if (!FLAGS.has(c.flagFor)) p(`${ctx}: unknown flag "${c.flagFor}"`);
+      num(c.sec, ctx);
     } else if ("inState" in c) num(c.inState, ctx);
     else if ("elapsed" in c) num(c.elapsed, ctx);
     else if ("var" in c) {
@@ -76,6 +83,10 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[]) {
     cond(c.when, `checklist ${i} (${c.label})`);
     if (c.onlyIf) cond(c.onlyIf, `checklist ${i} onlyIf`);
   });
+  for (const [action, a] of Object.entries(t.actions ?? {})) {
+    if (!ACTION_IDS.has(action)) p(`actions: unknown action "${action}"`);
+    a.before?.forEach((b, i) => cond(b.when, `action ${action} before ${i}`));
+  }
   for (const [drug, r] of Object.entries(t.drugs ?? {})) {
     if (!DRUG_IDS.has(drug)) p(`drugs: unknown drug "${drug}"`);
     r.contra?.forEach((c, i) => cond(c.when, `drug ${drug} contra ${i}`));

@@ -4,6 +4,7 @@
 import { clock, evalCond } from "./engine";
 import { ACTIONS, DRUGS, ROUTE_LABELS } from "./lexicon";
 import { unitLabel } from "./dose";
+import { ageText } from "./generate";
 import type { Content, Sim } from "./types";
 
 export type Debrief = {
@@ -35,7 +36,7 @@ export function debrief(content: Content, sim: Sim): Debrief {
     .map((item, i) => ({ item, doneAt: sim.checks[i] ?? null }))
     .filter(({ item }) => !item.onlyIf || evalCond(content, sim, item.onlyIf))
     .map(({ item, doneAt }) => ({
-      label: item.label,
+      label: g(item.label),
       critical: !!item.critical,
       doneAt,
       late: doneAt !== null && item.by !== undefined && doneAt > item.by,
@@ -56,7 +57,10 @@ export function debrief(content: Content, sim: Sim): Debrief {
 
   return {
     title: c.title,
-    patient: g(`[[גבר|אישה]] [[בן|בת]] ${c.age}, ${c.weight} ק"ג. רקע: ${c.history}. תרופות: ${c.meds}. רגישויות: ${c.allergies}.`),
+    patient: g(
+      `${c.age < 1 ? "[[תינוק|תינוקת]]" : c.age < 16 ? "[[ילד|ילדה]]" : "[[גבר|אישה]]"} [[בן|בת]] ${ageText(c.age)}, ${c.weight} ק"ג. ` +
+        `רקע: ${c.history}. תרופות: ${c.meds}. רגישויות: ${c.allergies}.`,
+    ),
     outcome: g(sim.ended ? OUTCOMES[sim.ended.how] : "התרחיש לא הסתיים."),
     checklist,
     errors: uniq("error"),

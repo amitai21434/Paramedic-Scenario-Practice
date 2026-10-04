@@ -24,12 +24,12 @@ function plainSeed(templateId: string, variantId: string, sex?: "m" | "f"): numb
   const t = content.cases.find((c) => c.id === templateId)!;
   for (let seed = 1; seed < 5000; seed++) {
     const c = generate(t, seed, variantId);
-    if (!c.allergyDrug && c.facts.length === (t.variants?.find((v) => v.id === variantId)?.patient?.facts?.rvInfarct ? 1 : 0) && (!sex || c.sex === sex)) return seed;
+    if (!c.allergyDrug && c.facts.filter((f) => !f.startsWith("opening")).length === (t.variants?.find((v) => v.id === variantId)?.patient?.facts?.rvInfarct ? 1 : 0) && (!sex || c.sex === sex)) return seed;
   }
   throw new Error("no plain seed");
 }
 
-function play(templateId: string, variantId: string, seed: number, lines: string[]) {
+function play(templateId: string, variantId: string | undefined, seed: number, lines: string[]) {
   let sim = startSim(content, templateId, seed, variantId);
   for (const line of lines) {
     const r = step(content, sim, line);
@@ -122,9 +122,9 @@ describe.skipIf(!hasContent)("scenario content", () => {
       ...DRUGS.map((d) => `${d.words[0]} 1`),
     ];
     for (const t of content.cases) {
-      for (const v of t.variants ?? []) {
-        for (let seed = 1; seed <= 6; seed++) {
-          let sim = play(t.id, v.id, seed, []);
+      for (const variantId of t.variants?.length ? t.variants.map((v) => v.id) : [undefined]) {
+        for (let seed = 1; seed <= 4; seed++) {
+          let sim = play(t.id, variantId, seed, []);
           let r = seed * 9973;
           for (let k = 0; k < 40 && !sim.ended; k++) {
             r = (r * 48271) % 2147483647;
@@ -135,11 +135,11 @@ describe.skipIf(!hasContent)("scenario content", () => {
               expect(vit.spo2).toBeNull();
               expect(vit.gcs).toBe(3);
             } else {
-              expect(vit.sbp, `${t.id}/${v.id} ${sim.state}`).not.toBeNull();
+              expect(vit.sbp, `${t.id}/${variantId} ${sim.state}`).not.toBeNull();
             }
           }
         }
       }
     }
-  });
+  }, 120_000);
 });

@@ -22,9 +22,12 @@ export async function buildBundle() {
   const cases = [];
   for (const file of fs.readdirSync(casesDir).sort()) {
     if (!file.endsWith(".mjs") || file === "shared.mjs") continue;
-    const c = await load(path.join(casesDir, file));
-    if (!c?.id) throw new Error(`${file} doesn't export a scenario with an id`);
-    cases.push(c);
+    // A file exports one scenario, or an array of related ones.
+    for (const c of [await load(path.join(casesDir, file))].flat()) {
+      if (!c?.id) throw new Error(`${file} doesn't export a scenario with an id`);
+      if (cases.some((x) => x.id === c.id)) throw new Error(`Duplicate scenario id "${c.id}" in ${file}`);
+      cases.push(c);
+    }
   }
 
   // Protocol titles for the debrief, from the split book (if present).
@@ -36,6 +39,10 @@ export async function buildBundle() {
       if (p.part) protocols[p.id.replace(/-\d+$/, "")] ??= p.title; // "08-09-1" also answers to "08-09"
     }
   }
+  // Titles for protocols the splitter merged into a neighbour (content/protocols.mjs).
+  const extra = path.join(contentDir, "protocols.mjs");
+  if (fs.existsSync(extra)) Object.assign(protocols, await load(extra));
+
   // JSON round-trip drops functions/undefined and catches anything unserializable.
   return JSON.parse(JSON.stringify({ cases, drugs, protocols }));
 }

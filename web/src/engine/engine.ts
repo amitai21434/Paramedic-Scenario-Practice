@@ -6,7 +6,7 @@ import { convert, splitUnit, unitLabel } from "./dose";
 import { generate, resolve, rng, roll } from "./generate";
 import { ACTIONS, DRUGS, ROUTE_LABELS } from "./lexicon";
 import { parse, type ParsedItem } from "./parse";
-import { consciousnessText, current, effectiveVitals, finding, hasPulse, isShockable, RHYTHMS, snapshot, stateDef } from "./physiology";
+import { consciousnessText, current, effectiveVitals, finding, hasPulse, isShockable, minSbp, RHYTHMS, snapshot, stateDef } from "./physiology";
 import type {
   AnswerKey,
   Cond,
@@ -60,6 +60,7 @@ export function startSim(content: Content, templateId: string, seed: number, var
     stateSince: 0,
     vitals: { ...DEFAULT_VITALS },
     flags: [],
+    flagSince: {},
     actions: [],
     fired: [],
     feedback: [],
@@ -263,7 +264,11 @@ export function evalCond(content: Content, sim: Sim, c: Cond): boolean {
       (a) =>
         a.action === c.done &&
         (!c.sinceState || a.t >= sim.stateSince) &&
-        (!c.joules || (a.joules !== undefined && a.joules >= c.joules[0] && a.joules <= c.joules[1])),
+        (!c.joules || (a.joules !== undefined && a.joules >= c.joules[0] && a.joules <= c.joules[1])) &&
+        (!c.joulesPerKg ||
+          (a.joules !== undefined &&
+            a.joules / sim.case.weight >= c.joulesPerKg[0] * 0.9 &&
+            a.joules / sim.case.weight <= c.joulesPerKg[1] * 1.1)),
     ).length;
     return n >= num(sim, c.min, 1);
   }
@@ -273,6 +278,7 @@ export function evalCond(content: Content, sim: Sim, c: Cond): boolean {
     return totalDose(content, sim, c.drug, given.map((a) => a.drug!)) >= num(sim, c.min, 0);
   }
   if ("flag" in c) return sim.flags.includes(c.flag);
+  if ("flagFor" in c) return sim.flags.includes(c.flagFor) && sim.t - (sim.flagSince[c.flagFor] ?? sim.t) >= num(sim, c.sec, 0);
   if ("inState" in c) return sim.t - sim.stateSince >= num(sim, c.inState, 0);
   if ("elapsed" in c) return sim.t >= num(sim, c.elapsed, 0);
   if ("fact" in c) return sim.case.facts.includes(c.fact);
@@ -310,12 +316,21 @@ export function drugRule(content: Content, sim: Sim, drug: string): DrugRule | n
 
 /** Total given, in the case rule's unit (so conditions like { drug: "atropine", min: 3 } read naturally). */
 function totalDose(content: Content, sim: Sim, drug: string, given: DrugGiven[]): number {
-  const unit = drugRule(content, sim, drug)?.unit || drugDef(drug).unit;
-  return given.reduce((sum, g) => {
-    if (g.value === null) return sum;
-    const v = convert(g.value, g.unit ?? unit, unit, sim.case.weight);
-    return sum + (v ?? 0);
-  }, 0);
+  const rule = drugRule(content, sim, drug);
+  const unit = rule?.unit || drugDef(drug).unit;
+  return given.reduce((sum, g) => sum + inMainUnit(rule, unit, g, sim.case.weight), 0);
+}
+
+/** A given dose expressed in the rule's main unit (0 when it can't be compared). */
+function inMainUnit(rule: DrugRule | null, unit: string, g: DrugGiven, weight: number): number {
+  if (g.value === null) return 0;
+  const direct = convert(g.value, g.unit ?? unit, unit, weight);
+  if (direct !== null) return direct;
+  for (const alt of rule?.alts ?? []) {
+    const v = alt.equals !== undefined ? convert(g.value, g.unit ?? unit, alt.unit, weight) : null;
+    if (v !== null) return v * alt.equals!;
+  }
+  return 0;
 }
 
 function feedback(sim: Sim, kind: "error" | "warn", text: string) {
@@ -347,7 +362,7 @@ function giveDrug(content: Content, sim: Sim, item: Extract<ParsedItem, { kind: 
   const given: DrugGiven = { drug: item.drug, value: item.value, unit, route, t: sim.t };
   const priorSame = sim.actions.filter((a) => a.drug?.drug === item.drug).map((a) => a.drug!);
   sim.actions.push({ action: `drug:${item.drug}`, t: sim.t, state: sim.state, drug: given });
-  if (SEDATIVES.includes(item.drug)) sim.flags = [...new Set([...sim.flags, "sedated"])];
+  if (SEDATIVES.includes(item.drug)) setFlag(sim, "sedated");
 
   const shown = `${def.name} ${item.value} ${unitLabel(unit)}${route ? ` ${ROUTE_LABELS[route] ?? route}` : ""}`;
   out.text(`✔ ${shown} — ניתן.`);
@@ -376,20 +391,35 @@ function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiv
   }
   if (rule?.dose && rule.unit && g.value !== null && g.unit) {
     // Check against the first accepted form whose unit is comparable (dose vs. rate).
-    const forms = [{ unit: rule.unit, dose: rule.dose, routes: rule.routes }, ...(rule.alts ?? [])];
+    const forms: { unit: string; dose: [number, number]; routes?: string[]; cap?: number }[] = [
+      { unit: rule.unit, dose: rule.dose, routes: rule.routes, cap: rule.cap },
+      ...(rule.alts ?? []),
+    ];
     const describe = (f: (typeof forms)[number]) =>
-      `${f.dose[0] === f.dose[1] ? f.dose[0] : `${f.dose[0]}–${f.dose[1]}`} ${unitLabel(f.unit)}`;
-    const form = forms.find((f) => convert(g.value!, g.unit!, f.unit, sim.case.weight) !== null);
+      `${f.dose[0] === f.dose[1] ? f.dose[0] : `${f.dose[0]}–${f.dose[1]}`} ${unitLabel(f.unit)}` +
+      (f.cap !== undefined ? ` (עד ${f.cap} ${unitLabel(splitUnit(f.unit).base)})` : "") +
+      (forms.length > 1 && f.routes?.length ? ` (${f.routes.map((r) => ROUTE_LABELS[r] ?? r).join("/")})` : "");
+    // Prefer the form for this route: adrenaline 0.5 mg is right IM but wrong IV (10–20 mcg).
+    const comparable = forms.filter((f) => convert(g.value!, g.unit!, f.unit, sim.case.weight) !== null);
+    const forRoute = forms.filter((f) => g.route && f.routes?.includes(g.route));
+    const form = forRoute.length ? forRoute.find((f) => comparable.includes(f)) : comparable[0];
     if (!form) {
       feedback(sim, "warn", `${shown}: לא ניתן לבדוק את המינון ביחידות שנכתבו (הפרוטוקול: ${forms.map(describe).join(" או ")}).`);
     } else {
-      const v = convert(g.value, g.unit, form.unit, sim.case.weight)!;
-      if (v < form.dose[0] * 0.95 || v > form.dose[1] * 1.05) {
+      let v = convert(g.value, g.unit, form.unit, sim.case.weight)!;
+      let [lo, hi] = form.dose;
+      if (form.cap !== undefined && splitUnit(form.unit).perKg) {
+        // Compare whole doses: a heavy child gets the capped dose, not the per-kg dose.
+        const w = sim.case.weight;
+        v *= w;
+        [lo, hi] = [Math.min(lo * w, form.cap), Math.min(hi * w, form.cap)];
+      }
+      if (v < lo * 0.95 || v > hi * 1.05) {
         feedback(sim, "error", `${shown}: מינון שגוי. לפי הפרוטוקול ${forms.map(describe).join(" או ")}${forms.some((f) => splitUnit(f.unit).perKg) ? ` (משקל ${sim.case.weight} ק"ג)` : ""}.`);
       }
     }
-    if (rule.max !== undefined && !splitUnit(rule.unit).perMin) {
-      const total = [...prior, g].reduce((s, x) => s + (x.value !== null && x.unit ? convert(x.value, x.unit, rule.unit!, sim.case.weight) ?? 0 : 0), 0);
+    if (rule.max != null && !splitUnit(rule.unit).perMin) {
+      const total = [...prior, g].reduce((s, x) => s + inMainUnit(rule, rule.unit!, x, sim.case.weight), 0);
       if (total > rule.max * 1.05) feedback(sim, "error", `${shown}: חריגה מהמינון המקסימלי (${rule.max} ${unitLabel(rule.unit)}).`);
     }
   }
@@ -417,6 +447,15 @@ const FINDING_ACTIONS: Partial<Record<string, [FindingKey, string]>> = {
   abdomen: ["abdomen", "בטן"],
   pupils: ["pupils", "אישונים"],
   neuro: ["neuro", "בדיקה נוירולוגית"],
+  vaginal: ["vaginal", "דימום וגינלי"],
+  mouth: ["mouth", "חלל הפה"],
+  newborn: ["newborn", "היילוד"],
+  head: ["head", "ראש ופנים"],
+  neck: ["neck", "צוואר"],
+  pelvis: ["pelvis", "אגן"],
+  limbs: ["limbs", "גפיים"],
+  back: ["back", "גב"],
+  burns: ["burns", "כוויות"],
 };
 
 const QUESTIONS: Partial<Record<string, AnswerKey>> = {
@@ -483,6 +522,8 @@ export function ecgSnapshot(sim: Sim, mode: EcgSnapshot["mode"]): EcgSnapshot {
 }
 
 function setFlag(sim: Sim, flag: string, on = true) {
+  if (on && !sim.flags.includes(flag)) sim.flagSince[flag] = sim.t;
+  if (!on) delete sim.flagSince[flag];
   sim.flags = on ? [...new Set([...sim.flags, flag])] : sim.flags.filter((f) => f !== flag);
 }
 
@@ -500,6 +541,12 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     sim.actions.push({ action: id, t: sim.t, state: sim.state, ...extra });
   const say = (s: string) => out.text(resolve(s, c));
   const measure = (k: VitalKey) => (sim.measured[k] = { value: v[k], t: sim.t });
+
+  const actionRule = sim.case.template.actions?.[id];
+  for (const b of actionRule?.before ?? []) {
+    if (!evalCond(content, sim, b.when)) feedback(sim, "error", `${actionDef(id).label}: ${b.why}`);
+  }
+  if (actionRule?.wrong) feedback(sim, "error", `${actionDef(id).label}: ${actionRule.wrong}`);
 
   const f = FINDING_ACTIONS[id];
   if (f) {
@@ -536,8 +583,9 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
         say("העיסויים הופסקו לבדיקת דופק.");
       }
       const regular = RHYTHMS[def.rhythm ?? "sinus"].regular ? "סדיר" : "לא סדיר";
-      if (v.sbp !== null && v.sbp < 70) return say(`דופק: רדיאלי לא נמוש. קרוטידי ${v.hr}, ${regular}, חלש.`);
-      return say(`דופק: ${v.hr}, ${regular}${v.sbp !== null && v.sbp < 90 ? ", חלש" : ""}.`);
+      const low = minSbp(c.age);
+      if (v.sbp !== null && v.sbp < low - 20) return say(`דופק: פריפרי לא נמוש. מרכזי ${v.hr}, ${regular}, חלש.`);
+      return say(`דופק: ${v.hr}, ${regular}${v.sbp !== null && v.sbp < low ? ", חלש" : ""}.`);
     }
     case "bp":
       record();
@@ -644,13 +692,18 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say("נתיב אוויר סופראגלוטי הוחדר.");
     case "cpr":
       record();
-      if (pulse) {
+      // Children: compressions are right for a pulse under 60 with poor perfusion (02-05).
+      if (pulse && !(c.age < 16 && (v.hr ?? 100) < 60)) {
         feedback(sim, "error", "עיסויים למטופל עם דופק.");
         return say("[[למטופל|למטופלת]] יש דופק.");
       }
       say(flags.has("cpr") ? "ממשיכים סבב עיסויים של 2 דקות." : "מתחילים עיסויים — סבב של 2 דקות.");
       setFlag(sim, "cpr");
       return;
+    case "chestThrusts":
+      if (!pulse) return perform(content, sim, { kind: "action", id: "cpr", phrase: item.phrase }, out);
+      record();
+      return say("✔ לחיצות חזה — בוצע.");
     case "lucas":
       record();
       if (pulse) return say("[[למטופל|למטופלת]] יש דופק.");
@@ -691,6 +744,60 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "vagal":
       record();
       return say("בוצע תמרון ולסלבה.");
+    case "stimulate":
+      record();
+      return say("✔ גירוי מעורר — בוצע.");
+    case "positionSide":
+      record();
+      setFlag(sim, "sitting", false);
+      setFlag(sim, "side");
+      return say("[[המטופל|המטופלת]] [[הושכב|הושכבה]] על הצד.");
+    case "cool":
+      record();
+      setFlag(sim, "cooling");
+      setFlag(sim, "warming", false);
+      return say("מתחילים בקירור: התזת מים, קרח ומיזוג.");
+    case "warm":
+      record();
+      setFlag(sim, "warming");
+      setFlag(sim, "cooling", false);
+      return say("הוסרו בגדים רטובים, [[המטופל מכוסה|המטופלת מכוסה]] בשמיכות והסביבה מחוממת.");
+    case "uterineMassage":
+      record();
+      setFlag(sim, "uterineMassage");
+      return say("מבצעים עיסוי רחם.");
+    case "coughEncourage":
+      record();
+      return say(canTalk(sim) || (v.gcs ?? 15) >= 13 ? "[[המטופל|המטופלת]] [[משתעל|משתעלת]] בכוח." : "[[המטופל|המטופלת]] לא [[מסוגל|מסוגלת]] להשתעל.");
+    case "tourniquet":
+    case "pressure":
+    case "pelvicBinder":
+    case "chestSeal":
+    case "splint":
+    case "burnDress":
+      record();
+      setFlag(sim, id);
+      return say(`✔ ${actionDef(id).label} — בוצע.`);
+    case "cSpine":
+      record();
+      setFlag(sim, "cSpine");
+      return say("✔ עמוד השדרה הצווארי מקובע.");
+    case "prepareDelivery":
+    case "deliver":
+    case "cordCheck":
+    case "dryBaby":
+    case "cutCord":
+    case "mcroberts":
+    case "elevatePelvis":
+    case "undress":
+    case "decon":
+    case "removeAllergen":
+    case "abdThrusts":
+    case "backBlows":
+    case "magill":
+    case "strokeCenter":
+      record();
+      return say(`✔ ${actionDef(id).label} — בוצע.`);
     case "prealert":
       record();
       return say("בית החולים קיבל את הדיווח המקדים.");

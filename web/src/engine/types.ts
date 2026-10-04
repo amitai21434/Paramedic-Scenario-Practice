@@ -41,7 +41,16 @@ export type FindingKey =
   | "abdomen"
   | "pupils"
   | "neuro"
-  | "heart";
+  | "heart"
+  | "vaginal"
+  | "mouth"
+  | "newborn"
+  | "head"
+  | "neck"
+  | "pelvis"
+  | "limbs"
+  | "back"
+  | "burns";
 
 export type AnswerKey =
   | "complaint"
@@ -68,11 +77,13 @@ export type Num = number | string;
 
 export type Cond =
   /** Action performed at least `min` times (default 1). `sinceState`: only count since entering the current state. */
-  | { done: string; min?: Num; sinceState?: boolean; joules?: [number, number] }
+  | { done: string; min?: Num; sinceState?: boolean; joules?: [number, number]; joulesPerKg?: [number, number] }
   /** Total drug dose given ≥ min (in the rule's unit; default: any dose). */
   | { drug: string; min?: Num; sinceState?: boolean }
   /** An ongoing intervention is active (cpr, o2, iv, monitor, cpap, pacing, intubated, …). */
   | { flag: string }
+  /** An intervention has been running for at least `sec` seconds (e.g. cooling for 5 minutes). */
+  | { flagFor: string; sec: Num }
   /** Seconds since entering the current state ≥ n. */
   | { inState: Num }
   /** Seconds since the scenario started ≥ n. */
@@ -143,10 +154,16 @@ export type DrugRule = {
   unit?: string;
   dose?: [number, number];
   routes?: string[];
-  /** Max total (same unit as dose; for /kg units, per kg). */
-  max?: number;
-  /** Other accepted forms, e.g. adrenaline as a push (mcg) or a drip (mcg/min). */
-  alts?: { unit: string; dose: [number, number]; routes?: string[] }[];
+  /** Max total (same unit as dose; for /kg units, per kg). null removes a general maximum. */
+  max?: number | null;
+  /** For per-kg doses: the largest single dose, in the base unit (adrenaline 0.01 mg/kg up to 0.5 mg → cap 0.5). */
+  cap?: number;
+  /**
+   * Other accepted forms, e.g. adrenaline as a push (mcg) or a drip (mcg/min).
+   * `equals`: how much of the main unit one unit of this form is (dextrose 25%: 1 ml = 0.25 g),
+   * so doses in either form add up.
+   */
+  alts?: { unit: string; dose: [number, number]; routes?: string[]; equals?: number; cap?: number }[];
   /** expected = should be given; optional = acceptable; wrong = should not be given here. */
   status?: "expected" | "optional" | "wrong";
   why?: string;
@@ -175,7 +192,9 @@ export type CaseTemplate = {
   /** Random values used as "$name" in conditions: an integer range [lo, hi] or { oneOf: [...] }. */
   vars?: Record<string, [number, number] | { oneOf: number[] }>;
   patient: {
+    /** Years. For babies use ageMonths instead (then `age` is ignored). */
     age: [number, number];
+    ageMonths?: [number, number] | null;
     /** Probability the patient is male. */
     male?: number;
     weight?: [number, number];
@@ -196,6 +215,8 @@ export type CaseTemplate = {
   /** Rules checked in every state (after the state's own rules). */
   rules?: Rule[];
   drugs?: Record<string, DrugRule>;
+  /** Checks when an action is performed, e.g. { transport: { before: [{ when: { vital: "temp", lt: 39 }, why: "…" }] } }. */
+  actions?: Record<string, { before?: { when: Cond; why: string }[]; wrong?: string }>;
   checklist: ChecklistItem[];
   /** Variants pick a sub-story; their fields are deep-merged over the template. */
   variants?: ({ id: string; w?: number; title?: string } & DeepPartial<Omit<CaseTemplate, "variants" | "id">>)[];
@@ -223,6 +244,7 @@ export type Case = {
   title: string;
   station: string;
   protocols: string[];
+  /** Years; fractional for babies (8 months = 0.67). */
   age: number;
   sex: Sex;
   weight: number;
@@ -281,6 +303,8 @@ export type Sim = {
   stateSince: number;
   vitals: Vitals;
   flags: string[];
+  /** When each active flag was switched on. */
+  flagSince: Record<string, number>;
   actions: ActionRecord[];
   /** Rules already fired in the current state entry (index keys). */
   fired: string[];

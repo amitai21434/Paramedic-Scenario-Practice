@@ -22,7 +22,7 @@ export function convert(value: number, from: string, to: string, weight: number)
   return Math.round(v * 1000) / 1000;
 }
 
-const UNIT_LABELS: Record<string, string> = { mcg: "mcg", mg: "mg", g: "g", ml: "ml", iu: "IU", meq: "mEq", J: "J" };
+const UNIT_LABELS: Record<string, string> = { mcg: "mcg", mg: "mg", g: "g", ml: "ml", iu: "IU", meq: "mEq", J: "J", unit: "מנות" };
 
 export function unitLabel(unit: string | null): string {
   if (!unit) return "";

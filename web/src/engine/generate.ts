@@ -50,12 +50,27 @@ export function deepMerge<T>(base: T, over: unknown): T {
 }
 
 /** Resolves a Text for this patient: facts choose if/then/else, "[[m|f]]" picks by sex, {age}/{weight} fill in. */
+/** "8 חודשים" for babies, "5" for everyone else (templates write "[[בן|בת]] {age}"). */
+export function ageText(age: number): string {
+  if (age >= 2) return String(Math.floor(age));
+  const months = Math.round(age * 12);
+  return months <= 1 ? (months === 0 ? "יום" : "חודש") : `${months} חודשים`;
+}
+
+/** Typical weight for age (used when a template doesn't set one). */
+export function weightForAge(r: Rng, age: number, sex: Sex): number {
+  if (age < 1) return Math.round((3.5 + age * 12 * 0.5) * 10) / 10;
+  if (age <= 10) return Math.round((age + 4) * 2 + r.int(-2, 2));
+  if (age < 16) return r.int(30, 55);
+  return sex === "m" ? r.int(70, 100) : r.int(55, 85);
+}
+
 export function resolve(text: Text | undefined, c: Pick<Case, "sex" | "facts" | "age" | "weight">): string {
   if (text === undefined) return "";
   const s = typeof text === "string" ? text : c.facts.includes(text.if) ? text.then : text.else;
   return s
     .replace(/\[\[([^|\]]*)\|([^\]]*)\]\]/g, (_, m, f) => (c.sex === "m" ? m : f))
-    .replace(/\{age\}/g, String(c.age))
+    .replace(/\{age\}/g, ageText(c.age))
     .replace(/\{weight\}/g, String(c.weight));
 }
 
@@ -73,8 +88,10 @@ export function generate(base: CaseTemplate, seed: number, variantId?: string): 
   const t = withVariant(base, variant?.id ?? null);
 
   const sex: Sex = r.next() < (t.patient.male ?? 0.5) ? "m" : "f";
-  const age = r.int(t.patient.age[0], t.patient.age[1]);
-  const weight = r.int(...(t.patient.weight ?? (sex === "m" ? [70, 100] : [55, 85])));
+  const age = t.patient.ageMonths
+    ? r.int(t.patient.ageMonths[0], t.patient.ageMonths[1]) / 12
+    : r.int(t.patient.age[0], t.patient.age[1]);
+  const weight = t.patient.weight ? r.int(...t.patient.weight) : weightForAge(r, age, sex);
 
   const background = r.weighted(t.patient.backgrounds);
   const allergy = t.patient.allergies?.length ? r.weighted(t.patient.allergies) : { text: "אין רגישויות ידועות" };
@@ -91,8 +108,10 @@ export function generate(base: CaseTemplate, seed: number, variantId?: string): 
   const vars = Object.fromEntries(
     Object.entries(t.vars ?? {}).map(([k, v]) => [k, Array.isArray(v) ? r.int(v[0], v[1]) : r.pick(v.oneOf)]),
   );
-  const who = { sex, facts: kept, age, weight };
+  // Which dispatch/scene pair was used, as a fact ("opening1") so answers can match it.
   const opening = r.int(0, t.dispatch.length - 1);
+  kept.push(`opening${opening}`);
+  const who = { sex, facts: kept, age, weight };
 
   return {
     seed,
