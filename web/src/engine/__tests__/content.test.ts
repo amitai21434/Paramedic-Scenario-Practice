@@ -50,6 +50,7 @@ describe.skipIf(!hasContent)("scenario content", () => {
     const seed = plainSeed("acs", "anterior", "m");
     const sim = play("acs", "anterior", seed, [
       "מחבר מוניטור, מודד לחץ דם וסטורציה",
+      "חמצן במשקפיים",
       "אקג 12",
       "יש לך אלרגיות?",
       "לקחת ויאגרה?",
