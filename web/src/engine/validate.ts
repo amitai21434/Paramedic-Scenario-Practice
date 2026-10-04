@@ -65,6 +65,7 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[]) {
   if (!states[t.initial]) p(`initial state "${t.initial}" doesn't exist`);
   if (!t.dispatch?.length || !t.scene?.length) p("needs dispatch and scene text");
   if (!t.checklist?.length) p("empty checklist");
+  if (!t.diagnoses?.length) p("no expected diagnosis (content/diagnoses.mjs)");
 
   for (const [id, s] of Object.entries(states)) {
     const ctx = `state ${id}`;

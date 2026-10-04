@@ -39,6 +39,18 @@ export async function buildBundle() {
       if (p.part) protocols[p.id.replace(/-\d+$/, "")] ??= p.title; // "08-09-1" also answers to "08-09"
     }
   }
+  // Expected diagnoses per storyline (content/diagnoses.mjs), attached to each variant.
+  const dxFile = path.join(contentDir, "diagnoses.mjs");
+  if (fs.existsSync(dxFile)) {
+    const dx = await load(dxFile);
+    for (const c of cases) {
+      if (c.variants?.length) for (const v of c.variants) v.diagnoses = dx[`${c.id}/${v.id}`];
+      else c.diagnoses = dx[c.id];
+    }
+    const known = new Set(cases.flatMap((c) => (c.variants?.length ? c.variants.map((v) => `${c.id}/${v.id}`) : [c.id])));
+    for (const key of Object.keys(dx)) if (!known.has(key)) throw new Error(`diagnoses.mjs: no storyline "${key}"`);
+  }
+
   // Titles for protocols the splitter merged into a neighbour (content/protocols.mjs).
   const extra = path.join(contentDir, "protocols.mjs");
   if (fs.existsSync(extra)) Object.assign(protocols, await load(extra));

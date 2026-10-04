@@ -110,6 +110,27 @@ describe.skipIf(!hasContent)("scenario content", () => {
     expect(errors(sim)).toEqual([]);
   });
 
+  it("diagnosis: credited when stated, never an error, mismatches listed", () => {
+    const seed = plainSeed("acs", "inferiorRv");
+    const sim = play("acs", "inferiorRv", seed, [
+      "מוניטור",
+      "הקצב הוא סינוס",
+      "חושדת ב-STEMI תחתון, נותנת אספירין 300 מג",
+      "אבחנה נוספת: אסתמה",
+      "סיום",
+    ]);
+    const d = debrief(content, sim).diagnosis;
+    expect(d.items.map((i) => [i.label, i.statedAt !== null])).toEqual([
+      ["אוטם (STEMI)", true],
+      ["דופן תחתונה", true],
+      ["מעורבות של החדר הימני", false],
+    ]);
+    expect(d.rhythms).toEqual([{ label: "קצב סינוס", statedAt: expect.any(Number) }]);
+    expect(d.unmatched.map((u) => u.text)).toEqual(["אבחנה נוספת: אסתמה"]);
+    expect(sim.actions.some((a) => a.drug?.drug === "aspirin")).toBe(true);
+    expect(sim.feedback.some((f) => f.text.includes("אבחנה"))).toBe(false);
+  });
+
   it("VF arrest: adrenaline before the second shock is flagged", () => {
     const seed = plainSeed("arrest", "vf");
     const sim = play("arrest", "vf", seed, ["עיסויים", "מוניטור", "IO", "אדרנלין 1 מג"]);

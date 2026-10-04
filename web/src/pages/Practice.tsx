@@ -119,6 +119,9 @@ export default function Practice() {
             כתבי מה את עושה, במילים שלך — למשל &quot;מחברת מוניטור ומודדת לחץ דם&quot;, &quot;אספירין 300 מ&quot;ג&quot;,
             &quot;מה קרה?&quot;. בסוף כתבי &quot;פינוי&quot; ו־&quot;סיום&quot; כדי לקבל משוב.
           </p>
+          <p>
+            אפשר גם לומר אבחנה או קריאת אק&quot;ג — &quot;חושדת ב־STEMI תחתון&quot;, &quot;הקצב הוא חסם מלא&quot; — והיא תופיע במשוב.
+          </p>
         </div>
       )}
 
@@ -244,6 +247,41 @@ function MonitorPanel({ sim }: { sim: Sim }) {
   );
 }
 
+/** Diagnosis and ECG reading — informational only, not part of the score. */
+function DiagnosisSection({ d }: { d: ReturnType<typeof debrief>["diagnosis"] }) {
+  const rows = [...d.items, ...d.rhythms.map((r) => ({ ...r, label: `קצב: ${r.label}` }))];
+  if (!rows.length && !d.unmatched.length) return null;
+  return (
+    <div>
+      <h3 className="mb-1 font-semibold">אבחנה וקריאת אק&quot;ג</h3>
+      <p className="mb-2 text-xs text-neutral-500">למידע בלבד — לא נספר בציון.</p>
+      <ul className="space-y-1 text-sm">
+        {rows.map((r, i) => (
+          <li key={i} className="flex gap-2">
+            <span aria-hidden>{r.statedAt === null ? "▫️" : "✅"}</span>
+            <span className={r.statedAt === null ? "text-neutral-500" : ""}>
+              {r.label}
+              {r.statedAt === null ? (
+                <span className="ms-1 text-xs">— לא נאמר</span>
+              ) : (
+                <span className="ms-1 font-mono text-xs text-neutral-500">({clock(r.statedAt)})</span>
+              )}
+            </span>
+          </li>
+        ))}
+        {d.unmatched.map((u, i) => (
+          <li key={`u${i}`} className="flex gap-2 text-neutral-600 dark:text-neutral-400">
+            <span aria-hidden>➖</span>
+            <span dir="auto">
+              נאמר: &quot;{u.text}&quot; <span className="text-xs">— לא תואם</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Reading({ label, value, color, unit }: { label: string; value: string | number; color: string; unit?: string }) {
   return (
     <div className="bg-black px-2 py-1.5">
@@ -309,7 +347,9 @@ function DebriefView({ content, sim, onNew }: { content: Content; sim: Sim; onNe
           </ul>
         </div>
       )}
-      {d.noFlow > 0 && <p className="text-sm text-red-700 dark:text-red-400">זמן ללא דופק וללא עיסויים: {clock(d.noFlow)}</p>}
+      <DiagnosisSection d={d.diagnosis} />
+
+      {d.noFlow > 0 &&<p className="text-sm text-red-700 dark:text-red-400">זמן ללא דופק וללא עיסויים: {clock(d.noFlow)}</p>}
 
       <div className="text-sm">
         <h3 className="mb-1 font-semibold">פרוטוקולים</h3>

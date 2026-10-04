@@ -217,6 +217,39 @@ export const UNITS: Record<string, string[]> = {
 export const PER_KG = ["לקג", "kg", "לקילו", "קג", "לק"];
 export const PER_MIN = ["לדקה", "min", "בדקה", "דקה"];
 
+// ---------------------------------------------------------------------------
+// Diagnoses and ECG readings. A clause containing one of these words is a
+// statement ("חושדת ב־STEMI תחתון", "הקצב הוא חסם מלא"), not an action.
+// ---------------------------------------------------------------------------
+
+export const STATEMENT_TRIGGERS = [
+  "אבחנה", "אבחנה משוערת", "חושד", "חושדת", "חשד", "חשוד", "מדובר", "נראה כמו", "נראה לי",
+  // Filler words (של, זה, את…) are dropped before matching, so every trigger needs a real word of its own.
+  "הקצב הוא", "באקג רואים", "האקג מראה", "האקג מדגים", "מזהה", "מזהה ש",
+  "אני חושב", "אני חושבת", "dx", "diagnosis",
+];
+
+/** How a student might name each rhythm. PEA is any organized rhythm without a pulse. */
+export const RHYTHM_NAMES: Record<string, { label: string; words: string[] }> = {
+  "sinus": { label: "קצב סינוס", words: ["סינוס", "קצב סינוס", "sinus", "nsr"] },
+  "sinus-brady": { label: "סינוס ברדיקרדיה", words: ["סינוס ברדיקרדיה", "ברדיקרדיה סינוס", "sinus brady", "sinus bradycardia", "ברדיקרדיה"] },
+  "sinus-tachy": { label: "סינוס טכיקרדיה", words: ["סינוס טכיקרדיה", "טכיקרדיה סינוס", "sinus tachy", "sinus tachycardia", "טכיקרדיה סינוסית"] },
+  "junctional": { label: "קצב צמתי", words: ["צמתי", "קצב צמתי", "junctional", "נודלי"] },
+  "avb1": { label: "חסם מדרגה ראשונה", words: ["דרגה ראשונה", "חסם מדרגה ראשונה", "first degree", "avb1"] },
+  "avb2-1": { label: "חסם מדרגה שנייה סוג 1 (ונקבך)", words: ["ונקבך", "וונקבך", "wenckebach", "מוביץ 1", "mobitz 1", "דרגה שנייה סוג 1", "סוג 1"] },
+  "avb2-2": { label: "חסם מדרגה שנייה סוג 2", words: ["מוביץ 2", "mobitz 2", "דרגה שנייה סוג 2", "סוג 2", "type 2"] },
+  "avb3": { label: "חסם מלא (מדרגה שלישית)", words: ["חסם מלא", "דרגה שלישית", "complete heart block", "chb", "avb3", "חסם מדרגה שלישית", "third degree"] },
+  "afib": { label: "פרפור עליות", words: ["פרפור עליות", "פרפור פרוזדורים", "af", "afib", "a fib"] },
+  "aflutter": { label: "רפרוף עליות", words: ["רפרוף", "רפרוף עליות", "flutter"] },
+  "svt": { label: "SVT", words: ["svt", "psvt", "על חדרית", "טכיקרדיה על חדרית"] },
+  "vt": { label: "VT", words: ["vt", "טכיקרדיה חדרית", "קומפלקס רחב"] },
+  "torsades": { label: "טורסאד (TdP)", words: ["טורסאד", "torsades", "tdp", "טורסדס"] },
+  "vf": { label: "פרפור חדרים (VF)", words: ["vf", "פרפור חדרים"] },
+  "asystole": { label: "אסיסטולה", words: ["אסיסטולה", "asystole", "קו ישר"] },
+  "paced": { label: "קצב מקוצב", words: ["מקוצב", "קצב מקוצב", "paced", "קצב קוצב", "capture", "קפצור"] },
+  "pea": { label: "PEA", words: ["pea", "פעילות חשמלית ללא דופק", "פי אי איי"] },
+};
+
 export const NEGATIONS = ["לא", "אל", "בלי", "ללא", "no", "dont", "not", "without"];
 /** Words skipped entirely (so phrases match across them). */
 export const STOPWORDS = ["את", "של", "the", "a", "an", "to", "of", "עם", "גם", "עוד", "and", "אני", "אנחנו", "זה", "שוב", "בבקשה"];

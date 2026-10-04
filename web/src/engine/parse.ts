@@ -4,7 +4,7 @@
 // lexicon. Drugs are matched first and take the dose/unit/route words that
 // follow them, so "אדרנלין 1 מג IV" doesn't also read as "open an IV".
 
-import { ACTIONS, DRUGS, NEGATIONS, PER_KG, PER_MIN, ROUTES, STOPWORDS, UNITS } from "./lexicon";
+import { ACTIONS, DRUGS, NEGATIONS, PER_KG, PER_MIN, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
 
 export type ParsedItem =
   | { kind: "action"; id: string; joules?: number; phrase: string }
@@ -12,6 +12,8 @@ export type ParsedItem =
 
 export type Parsed = {
   items: ParsedItem[];
+  /** Clauses stating a diagnosis or ECG reading — recorded, not acted on. */
+  statements: string[];
   /** A number (with optional unit) that wasn't attached to anything — answers "what dose?". */
   bare: { value: number; unit: string | null } | null;
   negated: string[];
@@ -170,7 +172,39 @@ function readQuantity(tokens: string[], used: boolean[], i: number): { value: nu
 
 // ---------------------------------------------------------------------------
 
+const TRIGGER_TOKENS = STATEMENT_TRIGGERS.map((w) => tokenize(w)).filter((t) => t.length);
+
+/** Does the text contain the phrase (word by word, forgiving prefixes and small typos)? */
+export function mentions(text: string, phrase: string): boolean {
+  const tokens = tokenize(text);
+  const want = tokenize(phrase);
+  if (!want.length) return false;
+  for (let i = 0; i + want.length <= tokens.length; i++) {
+    if (want.every((w, k) => tokenMatch(tokens[i + k], w) >= 0)) return true;
+  }
+  return false;
+}
+
+function isStatement(clause: string): boolean {
+  const tokens = tokenize(clause);
+  return TRIGGER_TOKENS.some((want) => {
+    for (let i = 0; i + want.length <= tokens.length; i++) {
+      if (want.every((w, k) => variants(tokens[i + k]).includes(w))) return true;
+    }
+    return false;
+  });
+}
+
 export function parse(text: string): Parsed {
+  // Diagnosis clauses are split off first, so "חושדת בבצקת ריאות" isn't read as "check for edema".
+  // Split on punctuation, but not inside numbers ("0.4", "0,5").
+  const clauses = text.split(/[;\n]+|[.,](?!\d)/).map((c) => c.trim()).filter(Boolean);
+  const statements = clauses.filter(isStatement);
+  const rest = clauses.filter((c) => !isStatement(c)).join(", ");
+  return { ...parseItems(rest), statements };
+}
+
+function parseItems(text: string): Omit<Parsed, "statements"> {
   const tokens = tokenize(text);
   const used = tokens.map(() => false);
   const found: { pos: number; item: ParsedItem }[] = [];

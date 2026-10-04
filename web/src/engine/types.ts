@@ -184,6 +184,9 @@ export type ChecklistItem = {
 
 export type WeightedText = { text: Text; w?: number; facts?: string[]; allergy?: string };
 
+/** An accepted diagnosis: matched if the student's statement mentions any of the words. */
+export type Diagnosis = { label: string; words: string[] };
+
 export type CaseTemplate = {
   id: string;
   station: string;
@@ -218,6 +221,8 @@ export type CaseTemplate = {
   /** Checks when an action is performed, e.g. { transport: { before: [{ when: { vital: "temp", lt: 39 }, why: "…" }] } }. */
   actions?: Record<string, { before?: { when: Cond; why: string }[]; wrong?: string }>;
   checklist: ChecklistItem[];
+  /** What the student could name (shown in the debrief; never counted as a mistake). */
+  diagnoses?: Diagnosis[];
   /** Variants pick a sub-story; their fields are deep-merged over the template. */
   variants?: ({ id: string; w?: number; title?: string } & DeepPartial<Omit<CaseTemplate, "variants" | "id">>)[];
 };
@@ -292,6 +297,8 @@ export type EcgSnapshot = {
   wide: boolean;
   st: Record<string, number>;
   seed: number;
+  /** Organized rhythm without a pulse (PEA). */
+  pulseless?: boolean;
   /** "strip" = lead II, "12" = 12-lead, "right" = right-sided leads, "cpr" = compression artifact. */
   mode: "strip" | "12" | "right" | "cpr";
 };
@@ -318,6 +325,8 @@ export type Sim = {
   messages: Message[];
   /** States entered so far, in order. */
   visited: string[];
+  /** Diagnoses and ECG readings the student stated. */
+  statements: { t: number; text: string }[];
   /** Checklist index → time it was first satisfied. */
   checks: Record<number, number>;
   ended: null | { how: "transport" | "end" | "death" | "good" | "bad"; t: number };

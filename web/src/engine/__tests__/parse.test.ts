@@ -41,3 +41,19 @@ describe("parse", () => {
     expect(ids("אדנוזין ואקג 12")).toEqual(["adenosine:?", "ecg12"]);
   });
 });
+
+describe("statements", () => {
+  it("splits a diagnosis off from actions in the same message", () => {
+    const p = parse("חושדת ב-STEMI תחתון, נותנת אספירין 300 מג");
+    expect(p.statements).toEqual(["חושדת ב-STEMI תחתון"]);
+    expect(p.items).toMatchObject([{ kind: "drug", drug: "aspirin", value: 300 }]);
+  });
+  it("doesn't read a diagnosis as an exam action", () => {
+    const p = parse("אבחנה: בצקת ריאות");
+    expect(p.items).toEqual([]);
+    expect(p.statements).toHaveLength(1);
+  });
+  it("ordinary actions aren't statements", () => {
+    for (const t of ["בודקת את הקצב", "קצב נשימה", "מה הקצב"]) expect(parse(t).statements, t).toEqual([]);
+  });
+});

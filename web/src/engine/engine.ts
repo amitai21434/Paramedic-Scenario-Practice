@@ -69,6 +69,7 @@ export function startSim(content: Content, templateId: string, seed: number, var
     pending: null,
     messages: [],
     visited: [],
+    statements: [],
     checks: {},
     ended: null,
     transportAt: null,
@@ -124,6 +125,15 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   const t0 = sim.t;
   const parsed = parse(text);
   let items: ParsedItem[] = parsed.items;
+
+  // Diagnoses are recorded without comment — the examiner doesn't say if they're right.
+  sim.statements ??= [];
+  for (const s of parsed.statements) sim.statements.push({ t: sim.t, text: s });
+  if (parsed.statements.length) out.text("📝 נרשם.");
+  if (parsed.statements.length && !items.length && !(sim.pending && parsed.bare)) {
+    out.flush(sim, t0);
+    return { sim, understood: true };
+  }
 
   // "באיזה מינון?" → "300 מג"
   if (!items.length && sim.pending && parsed.bare) {
@@ -517,6 +527,7 @@ export function ecgSnapshot(sim: Sim, mode: EcgSnapshot["mode"]): EcgSnapshot {
     wide: def.wideQrs ?? RHYTHMS[rhythm].wide,
     st: def.st ?? {},
     seed,
+    pulseless: !hasPulse(def) && !RHYTHMS[rhythm].noPulseAlways,
     mode,
   };
 }
