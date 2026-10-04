@@ -803,6 +803,8 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "undress":
     case "decon":
     case "removeAllergen":
+    case "pumpOff":
+    case "consultDoc":
     case "abdThrusts":
     case "backBlows":
     case "magill":

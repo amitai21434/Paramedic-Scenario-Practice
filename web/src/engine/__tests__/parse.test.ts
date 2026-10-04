@@ -97,3 +97,13 @@ describe("everyday phrasings", () => {
     expect(a("מרים רגליים")).toEqual(["positionSupine"]);
   });
 });
+
+describe("protocol actions", () => {
+  const a = (s: string) => parse(s).items.map((i) => (i.kind === "action" ? i.id : i.drug));
+  it("reads pump, consult, head-of-bed and asthma history wording", () => {
+    expect(a("מנתק את משאבת האינסולין")).toEqual(["pumpOff"]);
+    expect(a("מתייעץ עם רופא המוקד")).toEqual(["consultDoc"]);
+    expect(a("מרים את ראש המיטה ל-30 מעלות")).toEqual(["positionSit"]);
+    expect(a("יש לך אסתמה?")).toEqual(["askHistory"]);
+  });
+});
