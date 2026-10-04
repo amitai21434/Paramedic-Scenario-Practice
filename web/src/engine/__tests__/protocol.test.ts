@@ -195,4 +195,54 @@ describe.skipIf(!hasContent)("protocol play-throughs", () => {
     expect(sim.state).toBe("ventilated");
     expect(missed(sim)).toEqual([]);
   });
+
+  it("cord prolapse: oxygen, pelvis up, hold back the presenting part, immediate transport", () => {
+    let sim = play("obstetric/cordProlapse", [
+      "בדיקת פרינאום", "חמצן", "הרמת אגן היולדת", "יוצר מרווח בין החבל לראש", "עוטף את החבל בפד לח", "מתקשר לחדר לידה", "מפנה", "בודק דופק בחבל", "דיווח מקדים",
+    ]);
+    expect(sim.state).toBe("relieved");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+    sim = step(content, sim, "מחזיר את החבל פנימה").sim;
+    expect(errors(sim).join()).toMatch(/להחזיר את החבל/);
+  });
+
+  for (const stuck of [0, 1]) {
+    it(`breech (${stuck ? "head stuck" : "uncomplicated"}): semi-sitting, hands off, ${stuck ? "airway space and urgent transport" : "newborn check"}`, () => {
+      let sim = play("obstetric/breech", ["מה הרקע?", "בדיקת פרינאום", "מכין ערכת לידה", "חצי ישיבה", "יש אלרגיות?", "קבלת לידה", "ממתין"], (c) => c.vars.headStuck === stuck);
+      expect(sim.state).toBe(stuck ? "headStuck" : "born");
+      const rest = stuck
+        ? ["מרחיק את פני התינוק מהדופן", "מתקשר לחדר לידה", "מפנה", "ממתין", "ממתין", "ממתין", "מייבש את התינוק", "מנשים במפוח", "אפגר"]
+        : ["מייבש את התינוק", "אפגר", "מתקשר לחדר לידה", "מפנה"];
+      for (const l of rest) sim = step(content, sim, l).sim;
+      expect(sim.state).toBe("born");
+      expect(errors(sim)).toEqual([]);
+      expect(missed(sim)).toEqual([]);
+    });
+  }
+
+  it("symptomatic sinus bradycardia responds to atropine", () => {
+    const sim = play("bradycardia/atropine", ["מוניטור", "לחץ דם", "איך אתה מרגיש?", "חמצן", "אקג 12", "פותח וריד", "יש אלרגיות?", "אטרופין 1 מג IV", "לחץ דם", "מפנה"]);
+    expect(sim.state).toBe("better");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("Mobitz II: atropine doesn't help; pacing with ketamine sedation does", () => {
+    const sim = play("bradycardia/mobitz", [
+      "מוניטור", "לחץ דם", "בודק הכרה", "חמצן", "אקג 12", "פותח וריד", "יש אלרגיות?", "אטרופין 1 מג IV", "קטמין 0.5 מג לקג IV", "קיצוב חיצוני", "דיווח מקדים", "מפנה",
+    ]);
+    expect(sim.state).toBe("paced");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("upper GI bleed: lie flat, fluids, history of blood and anticoagulants", () => {
+    const sim = play("giBleed/", [
+      "לחץ דם", "בודק עור", "משכיב", "חמצן", "מה קרה?", "אילו תרופות?", "פותח וריד", "סליין 500 מל", "מוניטור", "סוכר", "לחץ דם", "דיווח מקדים", "מפנה",
+    ]);
+    expect(sim.state).toBe("better");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
 });
