@@ -5,6 +5,7 @@ import { clock, ecgSnapshot, pickTemplate, rollComplication, startSim, step } fr
 import { effectiveVitals } from "../engine/physiology";
 import type { Content, Message, Sim } from "../engine/types";
 import { loadContent, logUnrecognized } from "../lib/content";
+import { saveResult } from "../lib/results";
 
 const STATIONS = ["קרדיו", "מצחים", "ילדים", "טראומה"];
 const SAVE_KEY = "practice.sim.v1";
@@ -43,6 +44,18 @@ export default function Practice() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [sim?.messages.length]);
+
+  // Save each finished run to the history once (best effort; retried on reload if it failed).
+  useEffect(() => {
+    if (!content || !sim?.ended || sim.saved) return;
+    let cancelled = false;
+    saveResult(content, sim).then((r) => {
+      if (!cancelled && r !== "failed") update({ ...sim, saved: r });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [content, sim]);
 
   function update(next: Sim | null) {
     setSim(next);
@@ -303,6 +316,7 @@ function DebriefView({ content, sim, onNew }: { content: Content; sim: Sim; onNe
         <h2 className="text-lg font-semibold">{d.title}</h2>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">{d.patient}</p>
         <p className="mt-1 text-sm">{d.outcome}</p>
+        {sim.saved === "saved" && <p className="text-xs text-neutral-500">✓ נשמר בהיסטוריה שלך</p>}
         {d.complication && (
           <p className="mt-1 text-sm">
             ⚡ סיבוך במהלך התרחיש: {d.complication.title} ({clock(d.complication.at)})

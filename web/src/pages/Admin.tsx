@@ -1,5 +1,6 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { percent, weakSpots, type ResultRow } from "../lib/history";
 import { supabase, type Profile } from "../lib/supabase";
 
 // Everything here is also enforced server-side: RLS only lets the admin read
@@ -10,6 +11,7 @@ export default function Admin() {
     <main className="mx-auto w-full max-w-3xl space-y-10 p-6">
       <Invite />
       <Users />
+      <Results />
       <Unrecognized />
     </main>
   );
@@ -87,6 +89,56 @@ function Users() {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+type AdminResultRow = ResultRow & { profiles: { name: string; email: string } | null };
+
+/** Everyone's finished scenarios, and what the whole group misses most. */
+function Results() {
+  const [rows, setRows] = useState<AdminResultRow[]>([]);
+  useEffect(() => {
+    supabase
+      .from("scenario_results")
+      .select("*, profiles(name, email)")
+      .order("created_at", { ascending: false })
+      .limit(1000)
+      .then(({ data }) => setRows((data ?? []) as AdminResultRow[]));
+  }, []);
+  const spots = weakSpots(rows, 10);
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-xl font-semibold">Results</h2>
+      {rows.length === 0 ? (
+        <p className="text-sm text-neutral-500">No finished scenarios yet.</p>
+      ) : (
+        <>
+          <div dir="rtl" className="text-sm">
+            <h3 className="font-medium">הכי מפספסים — כל הקבוצה ({spots.runs} תרחישים)</h3>
+            <ul className="list-disc ps-5">
+              {spots.missed.map((m) => (
+                <li key={m.label}>
+                  {m.label} <span className="text-xs text-neutral-500">— {m.missed}/{m.of}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <ul className="divide-y divide-neutral-200 rounded border border-neutral-200 text-sm dark:divide-neutral-800 dark:border-neutral-800">
+            {rows.slice(0, 100).map((r) => (
+              <li key={r.id} className="flex justify-between gap-4 px-3 py-2">
+                <span dir="auto">
+                  {r.profiles?.name || r.profiles?.email} — {r.title}
+                </span>
+                <span className="shrink-0 text-neutral-500">
+                  {percent(r)}% · {new Date(r.created_at).toLocaleDateString("en-GB")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

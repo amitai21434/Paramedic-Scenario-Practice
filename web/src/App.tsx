@@ -3,6 +3,7 @@ import { HashRouter, Link, Navigate, Route, Routes } from "react-router";
 import { useAuth } from "./auth";
 import { supabase } from "./lib/supabase";
 import Admin from "./pages/Admin";
+import History from "./pages/History";
 import Login from "./pages/Login";
 import Practice from "./pages/Practice";
 import SetPassword from "./pages/SetPassword";
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/set-password" element={<RequireUser><SetPassword /></RequireUser>} />
         <Route path="/practice" element={<RequireUser><Practice /></RequireUser>} />
+        <Route path="/history" element={<RequireUser><History /></RequireUser>} />
         {/* Dev server only: try scenarios without signing in (content comes from the local folder). */}
         {import.meta.env.DEV && <Route path="/dev" element={<Practice />} />}
         <Route path="/admin" element={<RequireUser admin><Admin /></RequireUser>} />
@@ -48,6 +50,7 @@ function Header() {
     <header className="border-b border-neutral-200 dark:border-neutral-800">
       <nav className="mx-auto flex max-w-5xl items-center gap-4 p-4 text-sm">
         <Link to="/practice" className="font-medium">Practice</Link>
+        <Link to="/history">History</Link>
         {profile.role === "admin" && <Link to="/admin">Admin</Link>}
         <span className="ml-auto text-neutral-500" dir="auto">{profile.name || profile.email}</span>
         <button className="hover:underline" onClick={() => supabase.auth.signOut()}>

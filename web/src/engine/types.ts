@@ -385,4 +385,6 @@ export type Sim = {
     findings: Partial<Record<FindingKey, string>>;
   } | null;
   transportAt: number | null;
+  /** The app already tried to save this finished run to the history. */
+  saved?: "saved" | "skipped";
 };
