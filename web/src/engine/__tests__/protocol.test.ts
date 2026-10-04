@@ -31,7 +31,14 @@ function play(key: string, lines: string[], ok?: (c: Case) => boolean): Sim {
   const [id, variant] = key.split("/");
   let sim = startSim(content, id, seedWhere(id, variant, ok), variant);
   for (const line of lines) {
-    const r = step(content, sim, line.replace("{w2}", String(sim.case.weight * 2)).replace("{w}", String(sim.case.weight)));
+    const w = sim.case.weight;
+    const filled = line
+      .replace("{w100}", String(Math.round(w) / 100))
+      .replace("{w20}", String(w * 20))
+      .replace("{w15}", String(w * 15))
+      .replace("{w2}", String(w * 2))
+      .replace("{w}", String(w));
+    const r = step(content, sim, filled);
     expect(r.understood, `not understood: ${line}`).toBe(true);
     sim = r.sim;
   }
@@ -262,5 +269,99 @@ describe.skipIf(!hasContent)("protocol play-throughs", () => {
     expect(missed(sim)).toEqual([]);
     sim = play("spinal/ambulatory", ["מושיב אותו"]);
     expect(errors(sim).join()).toMatch(/לקבע/);
+  });
+
+  it("vomiting with dehydration: fluids by weight and ondansetron", () => {
+    const sim = play("vomiting/gastro", [
+      "בודק דופק", "בודק ריריות בפה", "לחץ דם", "מה קרה?", "בודק בטן", "סוכר", "יש אלרגיות?", "פותח וריד", "סליין 1000 מל", "זופרן 4 מג IV", "מפנה",
+    ]);
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("vomiting over 65: monitor before ondansetron", () => {
+    const sim = play("vomiting/elderly", [
+      "בודק דופק", "בודק עור", "לחץ דם", "אילו תרופות?", "בודק בטן", "מוניטור", "יש אלרגיות?", "פותח וריד", "סליין 500 מל", "זופרן 4 מג IV", "מפנה",
+    ]);
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("respiratory failure fit for CPAP", () => {
+    const sim = play("respFailure/cpap", ["חמצן", "סטורציה", "קצב נשימה", "לחץ דם", "האזנה לריאות", "קפנוגרפיה", "CPAP", "מודד חום", "דיווח מקדים", "מפנה"]);
+    expect(sim.state).toBe("better");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("respiratory failure with vomiting and low BP: CPAP is flagged, airway instead", () => {
+    const sim = play("respFailure/noCpap", [
+      "חמצן", "סטורציה", "קצב נשימה", "לחץ דם", "שאיבת הפרשות", "מנשים במפוח", "פותח וריד", "סליין 250 מל", "קטמין 1 מג לקג", "אינטובציה", "דיווח מקדים", "מפנה",
+    ]);
+    expect(sim.state).toBe("ventilated");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+    const wrong = play("respFailure/noCpap", ["CPAP"]);
+    expect(errors(wrong).join()).toMatch(/CPAP/);
+  });
+
+  it("renal colic, severe pain: fentanyl; moderate pain: tramadol (fentanyl flagged)", () => {
+    const severe = play("renalColic/severe", [
+      "כמה כואב מ1 עד 10?", "בודק בטן", "לחץ דם", "בודק דופק", "יש אלרגיות?", "פותח וריד", "פנטניל 100 מקג IV", "זופרן 4 מג IV", "כמה כואב עכשיו?", "מפנה",
+    ], (c) => c.weight >= 50 && c.weight <= 100);
+    expect(severe.state).toBe("relieved");
+    expect(errors(severe)).toEqual([]);
+    expect(missed(severe)).toEqual([]);
+    const moderate = play("renalColic/moderate", ["כמה כואב?", "בודק גב", "יש אלרגיות?", "טרמדקס 100 מג", "ממתין", "כמה כואב עכשיו?", "מפנה"]);
+    expect(moderate.state).toBe("relieved");
+    expect(errors(moderate)).toEqual([]);
+    expect(missed(moderate)).toEqual([]);
+    const over = play("renalColic/moderate", ["יש אלרגיות?", "פותח וריד", "פנטניל 100 מקג IV"]);
+    expect(errors(over).join()).toMatch(/כאב בינוני/);
+  });
+
+  it("conscious hypoglycemia: glucogel by mouth, then recheck", () => {
+    const sim = play("loc/hypoConscious", ["בודק הכרה", "סוכר", "יש אלרגיות?", "גלוקוג'ל 15 גרם", "ממתין", "סוכר", "אילו תרופות?", "מפנה"]);
+    expect(sim.state).toBe("awake");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("asystole from an opioid overdose: CPR, airway, early adrenaline, naloxone, post-ROSC care", () => {
+    let sim = play("arrest/asystoleOpioid", [
+      "מתחיל עיסויים", "מחבר מוניטור", "בודק דופק", "מנשים במפוח", "פותח IO", "אדרנלין 1 מג IO", "בודק אישונים", "נרקן 2 מג IO", "החייאה",
+    ]);
+    expect(sim.state).toBe("rosc");
+    for (const l of ["בודק דופק", "מלח 250 מל IO", "קפנוגרפיה", "סוכר"]) sim = step(content, sim, l).sim;
+    expect(sim.state).toBe("roscStable");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("child drowning with a slow pulse: ventilate first, compressions under 60, warm", () => {
+    const sim = play("pedsDrowning/pulse", ["פותח נתיב אוויר ושואב", "מנשים במפוח", "בודק דופק", "מוניטור", "מסיר בגדים רטובים ומחמם", "ממתין", "בודק דופק", "מפנה"]);
+    expect(sim.state).toBe("breathing");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("child drowning in arrest: ventilation first, CPR, IO, adrenaline per kg, warming", () => {
+    let sim = play("pedsDrowning/arrest", [
+      "מנשים במפוח", "מתחיל עיסויים", "מחבר מוניטור", "פותח IO", "אדרנלין {w100} מג IO", "מסיר בגדים רטובים ומחמם", "החייאה",
+    ]);
+    expect(sim.state).toBe("rosc");
+    for (const l of ["בודק דופק", "סוכר", "מפנה"]) sim = step(content, sim, l).sim;
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("child hit by a car: spine, oxygen, GCS, 20 ml/kg, TXA 15 mg/kg, fast transport", () => {
+    const sim = play("pedsTrauma/", [
+      "בודק זירה", "קיבוע ידני של הצוואר", "חמצן", "GCS ואישונים", "לחץ דם", "מילוי קפילרי", "בודק בטן", "פותח IO",
+      "סליין {w20} מל IO", "הקסקפרון {w15} מג IO", "סד לירך", "מכסה בשמיכה", "מפנה", "דיווח מקדים",
+    ]);
+    expect(sim.state).toBe("better");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
   });
 });

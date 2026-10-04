@@ -778,7 +778,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "cpap":
       record();
       if ((v.gcs ?? 15) < 13 || !pulse) feedback(sim, "error", "CPAP למטופל עם ירידה במצב ההכרה.");
-      if (v.sbp !== null && v.sbp < 90) feedback(sim, "error", "CPAP למטופל עם לחץ דם סיסטולי נמוך מ־90.");
+      if (v.sbp !== null && v.sbp < 100) feedback(sim, "error", "CPAP למטופל עם לחץ דם סיסטולי נמוך מ־100.");
       setFlag(sim, "cpap");
       return say("CPAP מחובר.");
     case "intubation":
