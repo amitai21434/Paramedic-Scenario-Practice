@@ -74,11 +74,14 @@ function distance(a: string, b: string, max: number): number {
   return d[a.length][b.length];
 }
 
+// Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
+const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע"].map(normalize));
+
 /** 0 = exact, 1 = typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
   const vs = variants(input);
   if (vs.includes(word)) return 0;
-  if (/^\d/.test(word) || word.length < 5) return -1;
+  if (/^\d/.test(word) || word.length < 5 || NO_TYPO.has(word)) return -1;
   const max = word.length >= 9 ? 2 : 1;
   return vs.some((v) => v.length >= 4 && distance(v, word, max) <= max) ? 1 : -1;
 }
@@ -262,6 +265,18 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
           value = q.value;
           unit = q.unit;
           mark(j, q.end);
+          break;
+        }
+      }
+    }
+    // "בשאיפה ונטולין", "IV אדרנלין": route written before the drug.
+    if (route === null) {
+      for (let j = Math.max(0, m.start - 2); j < m.start; j++) {
+        if (used[j]) continue;
+        const r = bestAt(tokens, used, j, ROUTE_PHRASES, true);
+        if (r && r.end <= m.start) {
+          route = r.phrase.key;
+          mark(r.start, r.end);
           break;
         }
       }

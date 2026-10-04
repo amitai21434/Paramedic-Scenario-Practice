@@ -56,4 +56,19 @@ describe("statements", () => {
   it("ordinary actions aren't statements", () => {
     for (const t of ["בודקת את הקצב", "קצב נשימה", "מה הקצב"]) expect(parse(t).statements, t).toEqual([]);
   });
+  it("doesn't mistake similar words for actions", () => {
+    expect(ids("מקשיב לריאות")).toEqual(["lungs"]);
+    expect(ids("ליטר בדקה חמצן")).toEqual(["o2"]);
+    expect(ids("מדווח לחדר מיון")).toEqual([]);
+    expect(ids("בולוס 500")).toEqual([]);
+  });
+  it("reads newly added vocabulary", () => {
+    expect(ids("מתחיל עירוי")).toEqual(["iv"]);
+    expect(ids("מזעזע 200")).toEqual(["shock"]);
+    expect(ids("לוחץ על הדימום")).toEqual(["pressure"]);
+    expect(ids("אגנית")).toEqual(["pelvicBinder"]);
+    expect(ids("אמבולנס נוסף")).toEqual(["backup"]);
+    expect(ids("דיווח לחדר מיון")).toEqual(["prealert"]);
+    expect(ids("בשאיפה ונטולין")).toEqual(["salbutamol:?@neb"]);
+  });
 });
