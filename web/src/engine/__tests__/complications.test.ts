@@ -102,4 +102,31 @@ describe.skipIf(!hasContent)("complications", () => {
     sim = run(sim, ["פותח וריד", ...Array(10).fill("ממתין")]);
     expect(sim.comp!.id).toBe("vomit");
   });
+
+  it("seizure: midazolam stops it; glucose and BP afterwards are expected", () => {
+    let sim = untilStarted(startSim(content, "stroke", 4, "lvo", ["seizure"]));
+    expect(finding(sim, "general")).toMatch(/פרכוס/);
+    sim = run(sim, ["משכיב על הצד", "חמצן", "פותח וריד", "דורמיקום 5 מג IV", "סוכר", "לחץ דם"]);
+    expect(sim.comp!.resolvedAt).not.toBeNull();
+    expect(items(sim).every((i) => i.doneAt !== null)).toBe(true);
+    expect(errors(sim)).toEqual([]);
+  });
+
+  it("seizure only in storylines that opt in, and only for adults", () => {
+    for (let seed = 1; seed < 300; seed++) {
+      expect(rollComplication(content, "acs", seed) ?? []).not.toContain("seizure");
+      expect(rollComplication(content, "pulmonaryEdema", seed) ?? []).not.toContain("hypotension");
+    }
+    expect([...Array(300)].some((_, i) => rollComplication(content, "headInjury", i + 1)?.includes("seizure"))).toBe(true);
+  });
+
+  it("low BP after fentanyl: a repeat BP and a fluid bolus fix it", () => {
+    let sim = run(startSim(content, "acs", 4, "anterior", ["hypotension"]), ["יש אלרגיות?", "פותח וריד", "פנטניל 50 מקג IV"]);
+    sim = untilStarted(sim);
+    sim = run(sim, ["לחץ דם"]);
+    expect(sim.measured.sbp!.value!).toBeLessThan(85);
+    sim = run(sim, ["מלח 250 מל IV"]);
+    expect(sim.comp!.resolvedAt).not.toBeNull();
+    expect(items(sim).every((i) => i.doneAt !== null)).toBe(true);
+  });
 });

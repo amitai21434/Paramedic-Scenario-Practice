@@ -66,7 +66,10 @@ export function startSim(content: Content, templateId: string, seed: number, var
         onlyIf: item.onlyIf ? { all: [{ comp: id }, item.onlyIf] } : { comp: id },
       })),
     );
-    c.template = { ...c.template, checklist: [...c.template.checklist, ...extra] };
+    const drugs = { ...c.template.drugs };
+    for (const id of ids)
+      for (const [d, rule] of Object.entries(content.complications![id].drugs ?? {})) drugs[d] = { ...rule, ...drugs[d] };
+    c.template = { ...c.template, checklist: [...c.template.checklist, ...extra], drugs };
   }
   const sim: Sim = {
     case: c,
@@ -250,7 +253,7 @@ function complicationTick(content: Content, sim: Sim, out: Output) {
       const def = content.complications?.[id];
       if (!def || !evalCond(content, sim, def.eligible)) continue;
       for (const f of def.clearFlags ?? []) setFlag(sim, f, false);
-      sim.comp = { id, t: sim.t, n: sim.actions.length, resolvedAt: null, worse: false, vitals: { ...def.vitals }, findings: resolveFindings(sim, def.findings) };
+      sim.comp = { id, t: sim.t, n: sim.actions.length, resolvedAt: null, worse: false, vitals: { ...def.vitals }, cap: { ...def.cap }, findings: resolveFindings(sim, def.findings) };
       say(def.say);
       return;
     }
@@ -264,7 +267,10 @@ function complicationTick(content: Content, sim: Sim, out: Output) {
     say(def.resolvedSay);
   } else if (def.worsen && !comp.worse && sim.t - comp.t >= def.worsen.after) {
     comp.worse = true;
-    for (const [k, d] of Object.entries(def.worsen.vitals ?? {}) as [VitalKey, number][]) comp.vitals[k] = (comp.vitals[k] ?? 0) + d;
+    for (const [k, d] of Object.entries(def.worsen.vitals ?? {}) as [VitalKey, number][]) {
+      comp.vitals[k] = (comp.vitals[k] ?? 0) + d;
+      if (comp.cap?.[k] !== undefined) comp.cap[k] += d;
+    }
     Object.assign(comp.findings, resolveFindings(sim, def.worsen.findings));
     say(def.worsen.say);
   }
@@ -280,9 +286,13 @@ function resolveFindings(sim: Sim, f: Partial<Record<FindingKey, Text>> | undefi
  */
 export function rollComplication(content: Content, templateId: string, seed: number, variantId?: string, chance = 0.35): string[] | null {
   const template = content.cases.find((c) => c.id === templateId);
-  const allowed = template ? generate(template, seed, variantId).template.complications : undefined;
+  const t = template ? generate(template, seed, variantId).template : undefined;
+  const allowed = t?.complications;
   if (allowed === false) return null;
-  const ids = Object.keys(content.complications ?? {}).filter((id) => !allowed || allowed.includes(id));
+  const all = content.complications ?? {};
+  const ids = Object.keys(all).filter(
+    (id) => (allowed ? allowed.includes(id) : !all[id].optIn) || t?.extraComplications?.includes(id),
+  );
   const r = rng((seed ^ 0x5bd1e995) >>> 0);
   if (!ids.length || r.next() >= chance) return null;
   for (let i = ids.length - 1; i > 0; i--) {
@@ -342,6 +352,7 @@ export function evalCond(content: Content, sim: Sim, c: Cond): boolean {
   if ("all" in c) return c.all.every((x) => evalCond(content, sim, x));
   if ("any" in c) return c.any.some((x) => evalCond(content, sim, x));
   if ("not" in c) return !evalCond(content, sim, c.not);
+  if ("age" in c) return (c.age.lt === undefined || sim.case.age < c.age.lt) && (c.age.gt === undefined || sim.case.age > c.age.gt);
   if ("comp" in c) return sim.comp?.id === c.comp && (c.resolved === undefined || (sim.comp.resolvedAt !== null) === c.resolved);
   // Actions performed after the complication started (by position, so a same-second action before it doesn't count).
   const afterComp = (i: number) => sim.comp != null && i >= sim.comp.n;

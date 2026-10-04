@@ -32,6 +32,7 @@ export function validate(content: Content): string[] {
     // The fake template has no initial state; that one complaint isn't real.
     problems.splice(before, problems.length - before, ...problems.slice(before).filter((p) => !p.includes("initial state")));
     for (const f of d.clearFlags ?? []) if (!FLAGS.has(f)) problems.push(`${where}: unknown flag "${f}"`);
+    for (const drug of Object.keys(d.drugs ?? {})) if (!DRUG_IDS.has(drug)) problems.push(`${where}: unknown drug "${drug}"`);
     const keys = [...Object.keys(d.vitals ?? {}), ...Object.keys(d.worsen?.vitals ?? {})] as VitalKey[];
     for (const k of keys) if (!["hr", "sbp", "dbp", "rr", "spo2", "etco2", "glucose", "temp", "gcs"].includes(k)) problems.push(`${where}: unknown vital "${k}"`);
   }
@@ -68,6 +69,8 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[], comps
     } else if ("state" in c || "visited" in c) {
       const s = "state" in c ? c.state : c.visited;
       if (!states[s]) p(`${ctx}: unknown state "${s}"`);
+    } else if ("age" in c) {
+      // nothing to check
     } else if ("comp" in c) {
       if (!comps.has(c.comp)) p(`${ctx}: unknown complication "${c.comp}"`);
     } else if (!("fact" in c || "vital" in c || "pulse" in c || "sex" in c)) p(`${ctx}: unrecognized condition ${JSON.stringify(c)}`);
@@ -99,7 +102,8 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[], comps
     cond(c.when, `checklist ${i} (${c.label})`);
     if (c.onlyIf) cond(c.onlyIf, `checklist ${i} onlyIf`);
   });
-  if (Array.isArray(t.complications)) for (const c of t.complications) if (!comps.has(c)) p(`unknown complication "${c}"`);
+  for (const c of [...(Array.isArray(t.complications) ? t.complications : []), ...(t.extraComplications ?? [])])
+    if (!comps.has(c)) p(`unknown complication "${c}"`);
   for (const [action, a] of Object.entries(t.actions ?? {})) {
     if (!ACTION_IDS.has(action)) p(`actions: unknown action "${action}"`);
     a.before?.forEach((b, i) => cond(b.when, `action ${action} before ${i}`));

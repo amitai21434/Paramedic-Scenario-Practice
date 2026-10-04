@@ -82,6 +82,8 @@ export type Cond =
   | { drug: string; min?: Num; sinceState?: boolean; sinceComp?: boolean }
   /** This complication has started (and, with resolved, has / hasn't been dealt with). */
   | { comp: string; resolved?: boolean }
+  /** The patient's age in years compares against a value. */
+  | { age: { lt?: number; gt?: number } }
   /** An ongoing intervention is active (cpr, o2, iv, monitor, cpap, pacing, intubated, …). */
   | { flag: string }
   /** An intervention has been running for at least `sec` seconds (e.g. cooling for 5 minutes). */
@@ -227,6 +229,8 @@ export type CaseTemplate = {
   diagnoses?: Diagnosis[];
   /** Which random complications may appear: a list of ids, or false for none. Default: any whose conditions fit. */
   complications?: string[] | false;
+  /** Opt-in complications that fit this storyline (e.g. a seizure after a head injury). */
+  extraComplications?: string[];
   /** Variants pick a sub-story; their fields are deep-merged over the template. */
   variants?: ({ id: string; w?: number; title?: string } & DeepPartial<Omit<CaseTemplate, "variants" | "id">>)[];
 };
@@ -243,12 +247,18 @@ export type ComplicationDef = {
   /** For the debrief, e.g. "הקאה ואיום על נתיב האוויר". */
   title: string;
   eligible: Cond;
+  /** Only appears in storylines that list it in extraComplications. */
+  optIn?: boolean;
+  /** Drug rules it needs; merged under the storyline's own rules. */
+  drugs?: Record<string, DrugRule>;
   /** Examiner says this when it starts. */
   say: Text;
   /** Interventions that stop working (iv, o2, intubated…). */
   clearFlags?: string[];
   /** Added to the measured vitals while unresolved. */
   vitals?: Partial<Record<VitalKey, number>>;
+  /** Upper limits on the measured vitals while unresolved (a real drop whatever the baseline). */
+  cap?: Partial<Record<VitalKey, number>>;
   /** Override the state's findings while unresolved. */
   findings?: Partial<Record<FindingKey, Text>>;
   resolvedWhen: Cond;
@@ -371,6 +381,7 @@ export type Sim = {
     resolvedAt: number | null;
     worse: boolean;
     vitals: Partial<Record<VitalKey, number>>;
+    cap?: Partial<Record<VitalKey, number>>;
     findings: Partial<Record<FindingKey, string>>;
   } | null;
   transportAt: number | null;

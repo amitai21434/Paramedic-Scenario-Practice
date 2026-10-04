@@ -88,6 +88,10 @@ export function effectiveVitals(sim: Sim): Vitals {
       const x = v[k];
       if (x !== null) v[k] = Math.round((x + d) * 10) / 10;
     }
+    for (const [k, max] of Object.entries(sim.comp.cap ?? {}) as [keyof Vitals, number][]) {
+      const x = v[k];
+      if (x !== null) v[k] = Math.min(x, max);
+    }
     if (v.spo2 !== null) v.spo2 = Math.max(40, Math.min(100, v.spo2));
     if (v.etco2 !== null) v.etco2 = Math.max(0, v.etco2);
   }
