@@ -897,6 +897,16 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "pumpOff":
     case "removeRings":
     case "callPolice":
+    case "restLimb":
+    case "washBite":
+    case "markSwelling":
+    case "cutSuck":
+    case "holdPresenting":
+    case "wrapCord":
+    case "cordPulse":
+    case "pushCordBack":
+    case "pullBaby":
+    case "faceSpace":
     case "reassure":
     case "restrain":
     case "consultDoc":

@@ -155,4 +155,44 @@ describe.skipIf(!hasContent)("protocol play-throughs", () => {
     const early = play("delirium/stimulant", ["פותח וריד"]);
     expect(errors(early).join()).toMatch(/משתולל/);
   });
+
+  it("snakebite, local: rest, rings off, wash, mark, pain relief; a tourniquet or ice is flagged", () => {
+    const sim = play("snakebite/local", [
+      "בודק זירה", "מנוחה מלאה, שלא יזוז", "מסיר טבעות", "בודק גפיים", "שוטף את מקום ההכשה במים", "מסמן את גבול הנפיחות", "איך נראה הנחש?",
+      "פותח וריד ביד השנייה", "איפה כואב?", "יש אלרגיות?", "פנטניל 100 מקג IV", "בודק גפיים", "מפנה",
+    ]);
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+    const wrong = play("snakebite/local", ["חוסם עורקים", "מקרר עם קרח"]);
+    expect(errors(wrong).length).toBe(2);
+  });
+
+  it("snakebite, systemic: fluids restore perfusion", () => {
+    const sim = play("snakebite/systemic", [
+      "משכיב במנוחה מלאה", "לחץ דם", "בודק עור", "מסיר טבעות", "חמצן", "פותח וריד", "סליין 250 מל", "סליין 250 מל", "מוניטור",
+      "יש אלרגיות?", "זופרן 4 מג IV", "איך נראה הנחש?", "דיווח מקדים", "מפנה",
+    ]);
+    expect(sim.state).toBe("better");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("Dead Sea, conscious: oxygen, warming, early transport, fluids and furosemide on the way", () => {
+    const sim = play("deadSea/conscious", [
+      "חמצן", "סטורציה ומוניטור", "האזנה לריאות", "מודד חום", "מפשיט, מייבש ומחמם", "מפנה", "פותח וריד", "סליין 500 מל", "יש אלרגיות?",
+      "פוסיד {w} מג IV", "זופרן 4 מג IV", "דיווח מקדים",
+    ], (c) => c.weight <= 120);
+    expect(sim.state).toBe("better");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("Dead Sea, severe: airway, warming, furosemide", () => {
+    const sim = play("deadSea/severe", [
+      "מנשים במפוח", "שאיבת הפרשות", "מוניטור", "קטמין 2 מג לקג", "אינטובציה", "קפנוגרפיה", "מפשיט ומחמם", "מפנה", "פותח וריד",
+      "סליין 500 מל", "פוסיד {w} מג IV", "דיווח מקדים",
+    ], (c) => c.weight <= 120);
+    expect(sim.state).toBe("ventilated");
+    expect(missed(sim)).toEqual([]);
+  });
 });
