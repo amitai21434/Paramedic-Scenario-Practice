@@ -1,0 +1,179 @@
+// The vocabulary the parser understands: actions, drugs, routes and units,
+// each with the ways students actually write them (Hebrew, English, slang,
+// verb forms). Matching ignores niqqud, quotes (מ"ג = מג), final letters and
+// the prefixes ו/ה/ב/ל/מ/ש/כ, and forgives one typo in longer words — so list
+// distinct words here, not every spelling.
+//
+// This file holds no clinical answers (doses, indications); those live in the
+// private scenario content.
+
+export type ActionDef = {
+  id: string;
+  label: string;
+  /** Simulated seconds the action takes. */
+  sec: number;
+  words: string[];
+  /** Saying this performs these actions instead (e.g. "SAMPLE"). */
+  expands?: string[];
+};
+
+export const ACTIONS: ActionDef[] = [
+  // --- Scene & general -------------------------------------------------------
+  { id: "scene", label: "הערכת בטיחות זירה ומיגון", sec: 10, words: ["זירה", "בטיחות", "בטיחות זירה", "מיגון", "כפפות", "זירה בטוחה"] },
+  { id: "general", label: "התרשמות כללית", sec: 10, words: ["התרשמות", "התרשמות כללית", "מצב כללי", "איך נראה", "איך הוא נראה", "איך היא נראית", "מראה כללי"] },
+  { id: "consciousness", label: "הערכת מצב הכרה", sec: 10, words: ["הכרה", "מצב הכרה", "avpu", "בהכרה", "מגיב", "מגיבה", "התמצאות", "מתמצא"] },
+  { id: "gcs", label: "GCS", sec: 15, words: ["gcs", "גלזגו", "גלאזגו", "גיסיאס"] },
+  { id: "airway", label: "הערכת נתיב אוויר", sec: 10, words: ["נתיב אוויר", "נתיב", "פתיחת נתיב", "airway check", "חסימה"] },
+  { id: "breathing", label: "הערכת נשימה", sec: 15, words: ["נשימה", "נושם", "נושמת", "מאמץ נשימתי", "שרירי עזר", "עבודה נשימתית", "breathing"] },
+  { id: "rr", label: "ספירת קצב נשימה", sec: 20, words: ["קצב נשימה", "קצב נשימות", "נשימות לדקה", "ספירת נשימות", "rr", "תדירות נשימה", "סופר נשימות"] },
+  { id: "lungs", label: "האזנה לריאות", sec: 20, words: ["האזנה", "מאזין", "מאזינה", "ריאות", "קולות נשימה", "סטטוסקופ", "חרחורים", "צפצופים", "auscultation"] },
+  { id: "pulse", label: "מדידת דופק", sec: 10, words: ["דופק", "דופק רדיאלי", "דופק קרוטידי", "דופק מרכזי", "דופק פריפרי", "pulse", "hr"] },
+  { id: "bp", label: "מדידת לחץ דם", sec: 30, words: ["לחץ דם", "לד", "bp", "nibp", "מד לחץ", "לחץ"] },
+  { id: "spo2", label: "מדידת סטורציה", sec: 10, words: ["סטורציה", "סטורצייה", "סאטורציה", "סטוריישן", "רווית חמצן", "spo2", "sat", "sats"] },
+  { id: "monitor", label: "חיבור למוניטור", sec: 20, words: ["מוניטור", "ניטור", "מדבקות", "דפיברילטור", "4 ערוצים", "ארבעה ערוצים", "monitor", "מוניטור דפיברילטור", "lp", "קורפולס", "corpuls"] },
+  { id: "ecg12", label: "אק\"ג 12 ערוצים", sec: 60, words: ["אקג", "12 ערוצים", "אקג 12", "ecg", "ekg", "12 lead", "שנים עשר ערוצים", "אקג מלא"] },
+  { id: "ecgRight", label: "אק\"ג ערוצים ימניים ואחוריים", sec: 45, words: ["ערוצים ימניים", "חיבורים ימניים", "אקג ימני", "v4r", "ימניים", "אחוריים", "v7", "ערוצים אחוריים", "right sided"] },
+  { id: "glucose", label: "בדיקת סוכר", sec: 30, words: ["סוכר", "בדיקת סוכר", "רמת סוכר", "סוכר בדם", "גלוקומטר", "גלוקוסטיק", "דקסטרוסטיק", "bgl"] },
+  { id: "temp", label: "מדידת חום", sec: 20, words: ["חום", "מדחום", "טמפרטורה", "temp", "מודד חום"] },
+  { id: "pupils", label: "בדיקת אישונים", sec: 10, words: ["אישונים", "אישון", "pupils", "פנס"] },
+  { id: "skin", label: "בדיקת עור", sec: 10, words: ["עור", "צבע עור", "גוון", "הזעה", "מזיע", "חיוורון", "כיחלון", "skin"] },
+  { id: "capRefill", label: "מילוי קפילרי", sec: 10, words: ["מילוי קפילרי", "מילוי נימי", "קפילרי", "cap refill"] },
+  { id: "jvd", label: "בדיקת גודש ורידי צוואר", sec: 10, words: ["גודש ורידי", "ורידי צוואר", "jvd", "גודש ורידים", "סיבוב ורידים"] },
+  { id: "edema", label: "בדיקת בצקות", sec: 10, words: ["בצקות", "בצקת ברגליים", "בצקות ברגליים", "רגליים", "בצקת היקפית"] },
+  { id: "chest", label: "בדיקת בית החזה", sec: 15, words: ["בית חזה", "בדיקת חזה", "בדיקת בית חזה", "חזה סימטרי", "סימטריה", "chest"] },
+  { id: "heart", label: "האזנה לקולות לב", sec: 15, words: ["קולות לב", "האזנה ללב", "אוושה", "heart sounds"] },
+  { id: "abdomen", label: "בדיקת בטן", sec: 15, words: ["בטן", "מישוש בטן", "בדיקת בטן", "abdomen"] },
+  { id: "neuro", label: "בדיקה נוירולוגית", sec: 30, words: ["נוירולוגית", "בדיקה נוירולוגית", "סימני שבץ", "fast", "סינסינטי", "כוח גפיים", "סימנים צדדיים", "חוזק בגפיים", "neuro"] },
+  { id: "headToToe", label: "בדיקה גופנית מלאה", sec: 60, words: ["בדיקה גופנית", "ראש עד כף רגל", "ראש לרגליים", "סריקה", "בדיקה מלאה", "סקר משני", "head to toe"], expands: ["general", "chest", "lungs", "abdomen", "edema", "skin"] },
+  { id: "etco2", label: "חיבור קפנוגרפיה", sec: 15, words: ["קפנוגרפיה", "קפנומטריה", "קפנו", "etco2", "end tidal", "co2"] },
+  { id: "vitals", label: "מדדים", sec: 40, words: ["מדדים", "סימנים חיוניים", "מדדים חוזרים", "vitals", "מדדים מלאים", "סט מדדים"], expands: ["pulse", "bp", "spo2", "rr"] },
+
+  // --- History (questions) ----------------------------------------------------
+  { id: "askComplaint", label: "תשאול: תלונה עיקרית", sec: 15, words: ["מה קרה", "מה מרגיש", "מה מרגישה", "מה הבעיה", "תלונה", "מה מפריע", "איך מרגיש", "איך את מרגישה", "איך אתה מרגיש", "מתלונן", "מתלוננת", "מה שלומך"] },
+  { id: "askOnset", label: "תשאול: מתי התחיל", sec: 10, words: ["מתי התחיל", "ממתי", "כמה זמן", "מתי זה התחיל", "מתי התחילו", "onset"] },
+  { id: "askPain", label: "תשאול: אופי הכאב", sec: 20, words: ["כאב", "כואב", "איפה כואב", "אופי הכאב", "תאר את הכאב", "opqrst", "מקרין", "הקרנה", "סולם כאב", "רמת כאב", "עוצמת כאב", "כאבים"] },
+  { id: "askHistory", label: "תשאול: רקע רפואי", sec: 15, words: ["רקע", "מחלות רקע", "רקע רפואי", "היסטוריה רפואית", "מחלות", "אנמנזה", "מחלות כרוניות"] },
+  { id: "askMeds", label: "תשאול: תרופות", sec: 15, words: ["תרופות", "תרופות קבועות", "נוטל", "נוטלת", "לוקח תרופות", "לוקחת תרופות", "medications"] },
+  { id: "askAllergies", label: "תשאול: רגישויות", sec: 10, words: ["אלרגיות", "אלרגיה", "רגישות", "רגישויות", "אלרגי", "אלרגית", "allergies"] },
+  { id: "askLastMeal", label: "תשאול: ארוחה אחרונה", sec: 10, words: ["ארוחה אחרונה", "מתי אכל", "מתי אכלה", "אכל", "אכלה", "שתה", "last meal"] },
+  { id: "askEvents", label: "תשאול: נסיבות האירוע", sec: 15, words: ["מה עשה", "מה עשית", "לפני האירוע", "מה קדם", "נסיבות", "מה עשתה", "events"] },
+  { id: "askPde5", label: "תשאול: תרופות לאין־אונות", sec: 10, words: ["ויאגרה", "סיאליס", "לוויטרה", "אין אונות", "אינאונות", "viagra", "cialis", "levitra"] },
+  { id: "askPrevious", label: "תשאול: אירועים קודמים", sec: 10, words: ["קרה בעבר", "קרה לפני", "פעם ראשונה", "אירועים קודמים", "קרה לך", "בעבר"] },
+  { id: "askSymptoms", label: "תשאול: תסמינים נלווים", sec: 15, words: ["תסמינים", "סימפטומים", "תלונות נוספות", "עוד תלונות", "בחילה", "בחילות", "סחרחורת", "קוצר נשימה", "הקאות"] },
+  { id: "sample", label: "תשאול SAMPLE", sec: 45, words: ["sample", "סמפל", "אנמנזה מלאה"], expands: ["askSymptoms", "askAllergies", "askMeds", "askHistory", "askLastMeal", "askEvents"] },
+
+  // --- Airway & breathing ----------------------------------------------------
+  { id: "o2", label: "מתן חמצן", sec: 15, words: ["חמצן", "o2", "משקפי חמצן", "משקפיים", "מסכת חמצן", "מסכה", "ריזרבואר", "non rebreather", "nrb", "משקפי אף"] },
+  { id: "o2Stop", label: "הפסקת חמצן", sec: 5, words: ["מוריד חמצן", "מורידה חמצן", "מפסיק חמצן", "מפסיקה חמצן", "הורדת חמצן", "הפסקת חמצן"] },
+  { id: "positionSit", label: "הושבת המטופל", sec: 10, words: ["הושבה", "מושיב", "מושיבה", "להושיב", "ישיבה", "פאולר", "חצי ישיבה", "fowler"] },
+  { id: "positionSupine", label: "השכבת המטופל", sec: 10, words: ["משכיב", "משכיבה", "להשכיב", "שכיבה", "השכבה", "הרמת רגליים"] },
+  { id: "opa", label: "החדרת מנתב אוויר", sec: 10, words: ["איירווי", "אירווי", "מנתב אוויר", "opa", "npa", "מנתב"] },
+  { id: "suction", label: "שאיבת הפרשות", sec: 15, words: ["סקשן", "שאיבה", "שואב", "שואבת", "suction"] },
+  { id: "bvm", label: "הנשמה במפוח", sec: 30, words: ["הנשמה", "הנשמות", "מפוח", "אמבו", "bvm", "מנשים", "מנשימה", "להנשים", "בלון"] },
+  { id: "cpap", label: "CPAP", sec: 60, words: ["cpap", "סיפאפ", "סי פאפ", "סיפאפ"] },
+  { id: "intubation", label: "אינטובציה", sec: 180, words: ["אינטובציה", "טובוס", "טבוס", "אנטובציה", "צנרור", "ett", "rsi", "intubation", "מאנטבס", "מאנטבת", "לאנטבס", "intubate"] },
+  { id: "sga", label: "נתיב אוויר סופראגלוטי", sec: 60, words: ["נתיב אוויר סופראגלוטי", "סופראגלוטי", "סופרגלוטי", "איגל", "igel", "i gel", "lma", "לרינגיאלית"] },
+  { id: "needle", label: "ניקור חזה", sec: 30, words: ["ניקור חזה", "נידל", "needle", "דקומפרסיה", "ניקור"] },
+
+  // --- Circulation -----------------------------------------------------------
+  { id: "iv", label: "פתיחת וריד", sec: 120, words: ["וריד", "ונפלון", "וונפלון", "קו ורידי", "גישה ורידית", "פתיחת וריד", "iv line", "פותח וריד", "פותחת וריד", "פתיחת ווריד", "ווריד"] },
+  { id: "io", label: "עירוי תוך־גרמי", sec: 60, words: ["תוך גרמי", "עירוי תוך גרמי", "io", "big", "nio", "ez io", "גישה תוך גרמית"] },
+  { id: "cpr", label: "עיסויים / סבב החייאה", sec: 120, words: ["החייאה", "עיסויים", "עיסוי", "cpr", "לחיצות חזה", "סבב", "סבב החייאה", "ממשיך החייאה", "ממשיכה החייאה", "ממשיך עיסויים", "עיסויי חזה", "2 דקות", "שתי דקות"] },
+  { id: "cprStop", label: "הפסקת עיסויים", sec: 5, words: ["מפסיק עיסויים", "מפסיקה עיסויים", "מפסיק החייאה", "מפסיקה החייאה", "עוצר עיסויים", "הפסקת עיסויים", "הפסקת החייאה"] },
+  { id: "lucas", label: "חיבור מעסה אוטומטי", sec: 30, words: ["לוקאס", "lucas", "מעסה", "מעסה אוטומטי"] },
+  { id: "rhythmCheck", label: "בדיקת קצב", sec: 10, words: ["בדיקת קצב", "בודק קצב", "בודקת קצב", "אבחון קצב", "ניתוח קצב", "rhythm check", "בדיקת דופק וקצב", "קצב", "מה הקצב"] },
+  { id: "shock", label: "שוק חשמלי (דפיברילציה)", sec: 10, words: ["שוק", "דפיברילציה", "מכת חשמל", "דפיב", "shock", "defib", "שוק חשמלי", "דיפיברילציה"] },
+  { id: "sync", label: "היפוך חשמלי מסונכרן", sec: 30, words: ["היפוך חשמלי", "היפוך מסונכרן", "סינכרון", "מסונכרן", "קרדיוורסיה", "cardioversion", "sync", "שוק מסונכרן", "היפוך"] },
+  { id: "pacing", label: "קיצוב חיצוני", sec: 60, words: ["קיצוב", "קוצב", "פייסינג", "pacing", "קיצוב חיצוני", "מקצב", "מקצבת"] },
+  { id: "vagal", label: "גירוי וגאלי", sec: 30, words: ["וגאלי", "ואגלי", "וגלי", "ולסלבה", "valsalva", "גירוי וגאלי", "תמרון ולסלבה", "vagal"] },
+  { id: "ngTube", label: "החדרת זונדה", sec: 60, words: ["זונדה", "ng tube", "זונדה לקיבה"] },
+
+  // --- Logistics -------------------------------------------------------------
+  { id: "backup", label: "הזמנת סיוע", sec: 10, words: ["תגבור", "ניידת נוספת", "צוות נוסף", "סיוע", "als", "תגבורת", "מזמין ניידת", "מזמינה ניידת", "מזמין סיוע", "מזמינה סיוע"] },
+  { id: "prealert", label: "דיווח מקדים לבית החולים", sec: 30, words: ["דיווח מקדים", "הודעה מוקדמת", "מודיע לבית החולים", "מודיעה לבית החולים", "התרעה", "מתקשר לבית החולים", "מתקשרת לבית החולים", "מעדכן את בית החולים", "מעדכנת את בית החולים"] },
+  { id: "cath", label: "קשר עם קרדיולוג / חדר צנתורים", sec: 60, words: ["צנתורים", "חדר צנתורים", "צנתור", "קרדיולוג", "קרדיולוג תורן", "טיפול נמרץ לב", "טנל", "שליחת אקג", "משדר אקג", "שולח אקג", "שולחת אקג", "cath lab"] },
+  { id: "transport", label: "פינוי", sec: 30, words: ["פינוי", "מפנה", "מפנים", "לבית חולים", "מעמיס", "מעמיסים", "לאמבולנס", "פינוי דחוף", "נוסעים", "נסיעה", "מתחילים פינוי"] },
+  { id: "wait", label: "המתנה והערכה חוזרת", sec: 60, words: ["ממתין", "ממתינה", "המתנה", "מחכה", "מחכים", "דקה", "הערכה חוזרת", "wait"] },
+  { id: "end", label: "סיום תרחיש", sec: 0, words: ["סיום", "סוף תרחיש", "מסיים", "מסיימת", "סיום תרחיש", "העברה לצוות בית החולים"] },
+];
+
+// ---------------------------------------------------------------------------
+// Drugs. `unit` is the unit assumed when the student writes only a number.
+// ---------------------------------------------------------------------------
+
+export type DrugDef = { id: string; name: string; unit: string; words: string[] };
+
+export const DRUGS: DrugDef[] = [
+  { id: "aspirin", name: "אספירין", unit: "mg", words: ["אספירין", "aspirin", "אספרין", "acetylsalicylic", "micropirin", "מיקרופירין"] },
+  { id: "nitro", name: "ניטרולינגואל", unit: "mg", words: ["ניטרולינגואל", "ניטרו", "ניטרוגליצרין", "ntg", "nitro", "ניטרט", "ניטרטים", "ניטרולינגוואל", "nitrolingual", "גליצריל"] },
+  { id: "isoket", name: "איזוקט", unit: "mg", words: ["איזוקט", "isoket", "isosorbide", "איזוסורביד"] },
+  { id: "fentanyl", name: "פנטניל", unit: "mcg", words: ["פנטניל", "fentanyl", "פנטאניל"] },
+  { id: "morphine", name: "מורפין", unit: "mg", words: ["מורפין", "morphine"] },
+  { id: "ondansetron", name: "זופרן", unit: "mg", words: ["זופרן", "zofran", "ondansetron", "אונדנסטרון"] },
+  { id: "heparin", name: "הפרין", unit: "iu", words: ["הפרין", "heparin"] },
+  { id: "atropine", name: "אטרופין", unit: "mg", words: ["אטרופין", "atropine"] },
+  { id: "adrenaline", name: "אדרנלין", unit: "mg", words: ["אדרנלין", "אפינפרין", "adrenaline", "adrenalin", "epinephrine", "epi", "אפי"] },
+  { id: "dopamine", name: "דופמין", unit: "mcg/kg/min", words: ["דופמין", "dopamine", "דופאמין"] },
+  { id: "amiodarone", name: "אמיודרון", unit: "mg", words: ["אמיודרון", "amiodarone", "קורדרון", "cordarone"] },
+  { id: "adenosine", name: "אדנוזין", unit: "mg", words: ["אדנוזין", "adenosine", "אדנוקור", "adenocor"] },
+  { id: "metoprolol", name: "מטופרולול", unit: "mg", words: ["מטופרולול", "metoprolol", "לופרסור", "lopressor"] },
+  { id: "magnesium", name: "מגנזיום סולפט", unit: "g", words: ["מגנזיום", "magnesium", "מגנזיום סולפט", "mgso4"] },
+  { id: "furosemide", name: "פוסיד", unit: "mg", words: ["פוסיד", "furosemide", "לאסיקס", "lasix", "פורוסמיד"] },
+  { id: "midazolam", name: "דורמיקום", unit: "mg", words: ["דורמיקום", "midazolam", "מידזולם", "dormicum"] },
+  { id: "ketamine", name: "קטמין", unit: "mg", words: ["קטמין", "ketamine", "קטאמין"] },
+  { id: "etomidate", name: "אטומידאט", unit: "mg", words: ["אטומידאט", "etomidate", "אטומידט"] },
+  { id: "naloxone", name: "נרקן", unit: "mg", words: ["נרקן", "naloxone", "נלוקסון", "narcan"] },
+  { id: "bicarb", name: "סודיום ביקרבונט", unit: "meq", words: ["ביקרבונט", "סודיום ביקרבונט", "bicarb", "bicarbonate", "ביקרבונאט"] },
+  { id: "dextrose", name: "דקסטרוז", unit: "ml", words: ["דקסטרוז", "גלוקוז", "dextrose", "d50", "glucose"] },
+  { id: "salbutamol", name: "ונטולין", unit: "mg", words: ["ונטולין", "salbutamol", "ventolin", "סלבוטמול"] },
+  { id: "ipratropium", name: "אירובנט", unit: "mg", words: ["אירובנט", "ipratropium", "atrovent", "אטרובנט"] },
+  { id: "methylpred", name: "סולומדרול", unit: "mg", words: ["סולומדרול", "solumedrol", "methylprednisolone", "סולו מדרול"] },
+  { id: "calcium", name: "קלציום גלוקונט", unit: "g", words: ["קלציום", "calcium", "קלציום גלוקונט", "סידן"] },
+  { id: "txa", name: "הקסקפרון", unit: "g", words: ["הקסקפרון", "txa", "tranexamic", "hexakapron"] },
+  { id: "labetalol", name: "לבטלול", unit: "mg", words: ["לבטלול", "labetalol", "טרנדייט", "trandate"] },
+  { id: "droperidol", name: "דרופרידול", unit: "mg", words: ["דרופרידול", "droperidol"] },
+  { id: "tramadol", name: "טרמדקס", unit: "mg", words: ["טרמדקס", "tramadol", "טרמדול"] },
+  { id: "acetaminophen", name: "אקמול", unit: "mg", words: ["אקמול", "paracetamol", "acetaminophen", "פרצטמול"] },
+  { id: "dipyrone", name: "אופטלגין", unit: "mg", words: ["אופטלגין", "dipyrone", "metamizole"] },
+  { id: "rocuronium", name: "רוקורוניום", unit: "mg", words: ["רוקורוניום", "rocuronium", "אסמרון", "esmeron"] },
+  { id: "saline", name: "סליין", unit: "ml", words: ["סליין", "נוזלים", "nacl", "בולוס", "הרטמן", "saline", "בולוס נוזלים", "עירוי נוזלים"] },
+];
+
+// ---------------------------------------------------------------------------
+// Dose details that follow a drug.
+// ---------------------------------------------------------------------------
+
+export const ROUTES: Record<string, string[]> = {
+  iv: ["iv", "תוך ורידי", "ורידי", "וורידי", "בוריד", "לוריד", "דרך הוריד", "פוש", "push", "בפוש"],
+  io: ["io", "תוך גרמי", "גרמי"],
+  im: ["im", "תוך שרירי", "בשריר", "שרירי"],
+  po: ["po", "בלעיסה", "לעיסה", "פומי", "בליעה", "דרך הפה", "ללעוס"],
+  sl: ["sl", "מתחת ללשון", "תת לשוני", "תת לשונית", "ספריי", "spray", "מתחת לשון"],
+  in: ["in", "תוך אפי", "באף", "אפי", "נזאלי"],
+  neb: ["אינהלציה", "נבולייזר", "nebulizer", "neb", "באינהלציה"],
+  et: ["et", "לטובוס", "דרך הטובוס"],
+  drip: ["בטפטוף", "טפטוף", "drip", "בהזלפה", "הזלפה", "בהזלפה איטית"],
+};
+
+export const ROUTE_LABELS: Record<string, string> = {
+  iv: "IV", io: "IO", im: "IM", po: "PO", sl: "SL", in: "IN", neb: "באינהלציה", et: "ET", drip: "בטפטוף",
+};
+
+/** Mass/volume/energy units. */
+export const UNITS: Record<string, string[]> = {
+  mg: ["mg", "מג", "מיליגרם", "מילגרם"],
+  mcg: ["mcg", "מקג", "מיקרוגרם", "גמא", "ug", "µg", "מקרוגרם"],
+  g: ["g", "gr", "גרם", "גר", "gram"],
+  ml: ["ml", "מל", "cc", "סמק", "מיליליטר", "סיסי"],
+  J: ["j", "גאול", "גול", "joule", "joules", "גאולים", "גולים", "גאואל"],
+  iu: ["iu", "יחידות", "יח", "units", "u"],
+  meq: ["meq", "מאק", "מיליאקוויולנט", "מאקו"],
+  mA: ["ma", "מיליאמפר", "מילי אמפר"],
+  L: ["ליטר", "ליטרים", "l", "lpm", "ליטר לדקה"],
+};
+export const PER_KG = ["לקג", "kg", "לקילו", "קג", "לק"];
+export const PER_MIN = ["לדקה", "min", "בדקה", "דקה"];
+
+export const NEGATIONS = ["לא", "אל", "בלי", "ללא", "no", "dont", "not", "without"];
+/** Words skipped entirely (so phrases match across them). */
+export const STOPWORDS = ["את", "של", "the", "a", "an", "to", "of", "עם", "גם", "עוד", "and", "אני", "אנחנו", "זה", "שוב", "בבקשה"];

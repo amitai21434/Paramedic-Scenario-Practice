@@ -14,3 +14,6 @@ supabase/.branches
 # Protocol book text and generated pieces (copyrighted — never commit)
 reference/out/
 reference/source/
+
+# Scenario content (protocol-derived, private) — uploaded to Supabase, never committed
+content/

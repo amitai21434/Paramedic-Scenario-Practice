@@ -3,149 +3,15 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { supabase, type Profile } from "../lib/supabase";
 
 // Everything here is also enforced server-side: RLS only lets the admin read
-// or write `settings` and read all profiles, and the invite-user function
+// all profiles and the unrecognized-input log, and the invite-user function
 // re-checks the caller's role.
 export default function Admin() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-10 p-6">
-      <ModelPicker />
-      <SettingEditor
-        settingKey="system_instructions"
-        title="System instructions"
-        description="Sent with every chat message. Changes apply immediately."
-        rows={16}
-        heading
-      />
-      <SettingEditor
-        settingKey="scenario_examples"
-        title="Exam scenario examples"
-        description="Real past exam scenarios. The AI uses them only as examples of style and difficulty when inventing a new scenario — never copies them."
-        rows={10}
-      />
       <Invite />
       <Users />
+      <Unrecognized />
     </main>
-  );
-}
-
-const MODELS = [
-  { value: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite — free, ~500 requests/day" },
-  { value: "gemini-3.8-flash", label: "Gemini 3.8 Flash — stronger, free tier only 20 requests/day" },
-  { value: "stub", label: "Test mode — no AI, shows which book pages would be sent" },
-];
-
-function ModelPicker() {
-  const [model, setModel] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "model")
-      .single()
-      .then(({ data }) => setModel(data?.value ?? null));
-  }, []);
-
-  async function change(value: string) {
-    setModel(value);
-    setSaved(false);
-    const { error } = await supabase.from("settings").update({ value }).eq("key", "model");
-    setSaved(!error);
-  }
-
-  return (
-    <section className="space-y-2">
-      <h2 className="text-xl font-semibold">AI model</h2>
-      <div className="flex items-center gap-3">
-        <select
-          value={model ?? ""}
-          disabled={model === null}
-          onChange={(e) => change(e.target.value)}
-          className="input"
-        >
-          {model !== null && !MODELS.some((m) => m.value === model) && <option value={model}>{model}</option>}
-          {MODELS.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        {saved && <span className="text-sm text-green-600">Saved — applies to the next message.</span>}
-      </div>
-    </section>
-  );
-}
-
-function SettingEditor(props: {
-  settingKey: string;
-  title: string;
-  description: string;
-  rows: number;
-  heading?: boolean;
-}) {
-  const { settingKey } = props;
-  const [text, setText] = useState("");
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
-  const [status, setStatus] = useState<"loading" | "idle" | "saving" | "saved" | "error">("loading");
-
-  useEffect(() => {
-    supabase
-      .from("settings")
-      .select("value, updated_at")
-      .eq("key", settingKey)
-      .single()
-      .then(({ data, error }) => {
-        if (error) return setStatus("error");
-        setText(data.value);
-        setUpdatedAt(data.updated_at);
-        setStatus("idle");
-      });
-  }, [settingKey]);
-
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    setStatus("saving");
-    const { data, error } = await supabase
-      .from("settings")
-      .update({ value: text })
-      .eq("key", settingKey)
-      .select("updated_at")
-      .single();
-    if (error) return setStatus("error");
-    setUpdatedAt(data.updated_at);
-    setStatus("saved");
-  }
-
-  const Title = props.heading ? "h1" : "h2";
-  return (
-    <section className="space-y-3">
-      <Title className={props.heading ? "text-2xl font-semibold" : "text-xl font-semibold"}>{props.title}</Title>
-      <p className="text-sm text-neutral-500">
-        {props.description}
-        {updatedAt && <> Last saved {new Date(updatedAt).toLocaleString("en-GB")}.</>}
-      </p>
-      <form onSubmit={save} className="space-y-2">
-        <textarea
-          rows={props.rows}
-          dir="auto"
-          disabled={status === "loading"}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            if (status === "saved") setStatus("idle");
-          }}
-          className="w-full rounded border border-neutral-300 bg-transparent p-3 font-mono text-sm dark:border-neutral-700"
-        />
-        <div className="flex items-center gap-3">
-          <button disabled={status === "loading" || status === "saving"} className="btn">
-            {status === "saving" ? "Saving…" : "Save"}
-          </button>
-          {status === "saved" && <span className="text-sm text-green-600">Saved.</span>}
-          {status === "error" && <span className="text-sm text-red-600">Couldn&apos;t load or save.</span>}
-        </div>
-      </form>
-    </section>
   );
 }
 
@@ -221,6 +87,45 @@ function Users() {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+type UnrecognizedRow = { id: number; text: string; scenario: string; created_at: string };
+
+/** Messages the scenario engine couldn't understand — words to add to the vocabulary (web/src/engine/lexicon.ts). */
+function Unrecognized() {
+  const [rows, setRows] = useState<UnrecognizedRow[]>([]);
+  useEffect(() => {
+    supabase
+      .from("unrecognized_inputs")
+      .select("id, text, scenario, created_at")
+      .order("id", { ascending: false })
+      .limit(100)
+      .then(({ data }) => setRows(data ?? []));
+  }, []);
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-xl font-semibold">Unrecognized messages</h2>
+      <p className="text-sm text-neutral-500">
+        What students typed that the scenario engine didn&apos;t understand. Add the missing words to{" "}
+        <code>web/src/engine/lexicon.ts</code>.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-neutral-500">Nothing yet.</p>
+      ) : (
+        <ul className="divide-y divide-neutral-200 rounded border border-neutral-200 text-sm dark:divide-neutral-800 dark:border-neutral-800">
+          {rows.map((r) => (
+            <li key={r.id} className="flex justify-between gap-4 px-3 py-2">
+              <span dir="auto">{r.text}</span>
+              <span className="shrink-0 text-neutral-500">
+                {r.scenario} · {new Date(r.created_at).toLocaleDateString("en-GB")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
