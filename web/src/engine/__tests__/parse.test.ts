@@ -86,3 +86,14 @@ describe("question phrasing", () => {
     expect(r).not.toContain("askMeds");
   });
 });
+
+describe("everyday phrasings", () => {
+  const a = (s: string) => parse(s).items.map((i) => (i.kind === "action" ? i.id : i.drug));
+  it("reads saline, c-spine and cannula wording", () => {
+    expect(parse("מלח 500 מל").items[0]).toMatchObject({ kind: "drug", drug: "saline" });
+    expect(a("מקבע צוואר")).toEqual(["cSpine"]);
+    expect(a("מחדיר קנולה")).toEqual(["iv"]);
+    expect(a("חמצן בקנולה אפית")).toEqual(["o2"]);
+    expect(a("מרים רגליים")).toEqual(["positionSupine"]);
+  });
+});
