@@ -326,6 +326,8 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
   // "הנשמה במפוח" names one action twice.
   const items = found
     .map((f) => f.item)
+    // "נוטל תרופות לאין־אונות?" is the PDE5 question, not the medication list.
+    .filter((it, _k, all) => !(it.kind === "action" && it.id === "askMeds" && all.some((o) => o.kind === "action" && (o.id === "askPde5" || o.id === "askAllergies"))))
     .filter((it, k, all) => it.kind === "drug" || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k);
   return { items, bare, negated };
 }

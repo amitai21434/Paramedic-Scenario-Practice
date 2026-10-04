@@ -72,3 +72,17 @@ describe("statements", () => {
     expect(ids("בשאיפה ונטולין")).toEqual(["salbutamol:?@neb"]);
   });
 });
+
+describe("question phrasing", () => {
+  const ids = (s: string) => parse(s).items.map((i) => (i.kind === "action" ? i.id : i.drug));
+  it("reads natural history questions", () => {
+    expect(ids("מה אכלת היום?")).toContain("askLastMeal");
+    expect(ids("יש לך סכרת?")).toContain("askHistory");
+    expect(ids("מקשיב ללב")).toContain("heart");
+  });
+  it("allergy question doesn't also ask meds", () => {
+    const r = ids("יש רגישות לתרופות?");
+    expect(r).toContain("askAllergies");
+    expect(r).not.toContain("askMeds");
+  });
+});
