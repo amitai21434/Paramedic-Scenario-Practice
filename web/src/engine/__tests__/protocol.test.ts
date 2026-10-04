@@ -245,4 +245,22 @@ describe.skipIf(!hasContent)("protocol play-throughs", () => {
     expect(errors(sim)).toEqual([]);
     expect(missed(sim)).toEqual([]);
   });
+
+  it("diving injury with neurogenic shock: immobilise, breathing, neuro exam, fluids", () => {
+    const sim = play("spinal/neurogenic", [
+      "קיבוע ידני של הצוואר", "הערכת נשימה", "חמצן", "בדיקה נוירולוגית", "לחץ דם", "בודק דופק", "פותח וריד", "סליין 250 מל", "סליין 250 מל",
+      "מכסה בשמיכות", "דיווח מקדים", "מפנה",
+    ]);
+    expect(sim.state).toBe("supported");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("walking after a rear-end crash with neck tenderness: still immobilised", () => {
+    let sim = play("spinal/ambulatory", ["בודק זירה", "מה קרה?", "בודק צוואר", "בדיקה נוירולוגית", "צווארון, מנייח ראש ולוח גב", "איפה כואב?", "בדיקה נוירולוגית", "מפנה"]);
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+    sim = play("spinal/ambulatory", ["מושיב אותו"]);
+    expect(errors(sim).join()).toMatch(/לקבע/);
+  });
 });
