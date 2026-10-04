@@ -121,7 +121,7 @@ function schedule(snap: EcgSnapshot, duration: number): Schedule {
   return { p, qrs, baseline };
 }
 
-function beatAt(t: number, b: Beat, lead: (typeof LEADS)[string], st: number, rr: number, rhythm: string): number {
+function beatAt(t: number, b: Beat, lead: (typeof LEADS)[string], st: number, rr: number, rhythm: string, peakedT = false): number {
   const dt = t - b.t;
   if (dt < -0.3 || dt > 0.7) return 0;
   if (rhythm === "vt" || rhythm === "torsades") {
@@ -137,12 +137,15 @@ function beatAt(t: number, b: Beat, lead: (typeof LEADS)[string], st: number, rr
     );
   }
   const qt = 0.16 + 0.12 * Math.sqrt(rr);
+  // Hyperkalemia: tall, narrow, symmetric T waves.
+  const tAmp = peakedT ? Math.sign(lead.t || 1) * Math.max(Math.abs(lead.t) * 3, 0.6) : lead.t;
+  const tWidth = peakedT ? 0.032 : 0.055;
   let v = 0;
   if (b.paced) v += gauss(dt, -0.045, 0.002, 1.2);
   if (b.wide) {
-    v += gauss(dt, 0, 0.03, lead.r * 1.1) + gauss(dt, 0.07, 0.03, -lead.s * 0.9 - 0.2) + gauss(dt, qt, 0.07, -lead.t * 0.9);
+    v += gauss(dt, 0, 0.03, lead.r * 1.1) + gauss(dt, 0.07, 0.03, -lead.s * 0.9 - 0.2) + gauss(dt, qt, peakedT ? tWidth : 0.07, peakedT ? tAmp : -lead.t * 0.9);
   } else {
-    v += gauss(dt, -0.025, 0.008, -0.06 * Math.sign(lead.r)) + gauss(dt, 0, 0.011, lead.r) + gauss(dt, 0.028, 0.011, -lead.s) + gauss(dt, qt, 0.055, lead.t);
+    v += gauss(dt, -0.025, 0.008, -0.06 * Math.sign(lead.r)) + gauss(dt, 0, 0.011, lead.r) + gauss(dt, 0.028, 0.011, -lead.s) + gauss(dt, qt, tWidth, tAmp);
   }
   // ST deviation: a plateau from the J point into the T wave.
   if (st) v += st * 0.1 * (sigmoid((dt - 0.05) / 0.008) - sigmoid((dt - (qt + 0.05)) / 0.03));
@@ -163,10 +166,10 @@ export function leadSamples(snap: EcgSnapshot, leadName: string, from: number, s
     let v = s.baseline(t) * Math.abs(lead.r || 1);
     if (snap.rhythm === "torsades") v = 0;
     for (const pt of s.p) {
-      if (Math.abs(t - pt) < 0.15) v += gauss(t, pt, 0.025, lead.p);
+      if (Math.abs(t - pt) < 0.15) v += gauss(t, pt, 0.025, snap.peakedT ? lead.p * 0.3 : lead.p);
     }
     for (const b of s.qrs) {
-      let bv = beatAt(t, b, lead, st, rr, snap.rhythm);
+      let bv = beatAt(t, b, lead, st, rr, snap.rhythm, snap.peakedT);
       if (snap.rhythm === "torsades") bv *= 0.5 + 0.5 * Math.abs(Math.sin((t * Math.PI) / 2.2));
       v += bv;
     }

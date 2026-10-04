@@ -616,6 +616,7 @@ export function ecgSnapshot(sim: Sim, mode: EcgSnapshot["mode"]): EcgSnapshot {
     st: def.st ?? {},
     seed,
     pulseless: !hasPulse(def) && !RHYTHMS[rhythm].noPulseAlways,
+    peakedT: def.peakedT,
     mode,
   };
 }
@@ -655,6 +656,8 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
   const q = QUESTIONS[id];
   if (q) {
     record();
+    // A confused patient talks, but the history comes from whoever is with them.
+    if (def.confused && c.bystander && BYSTANDER_KEYS.includes(q)) return say(`${c.bystander}: "${answer(sim, q)}"`);
     if (canTalk(sim)) return say(`[[המטופל|המטופלת]]: "${answer(sim, q)}"`);
     if (c.bystander && BYSTANDER_KEYS.includes(q)) return say(`${c.bystander}: "${answer(sim, q)}"`);
     return say(pulse && (v.gcs ?? 15) >= 9 ? "[[המטופל|המטופלת]] [[מבולבל|מבולבלת]] ולא עונה לעניין." : "[[המטופל|המטופלת]] [[אינו מגיב|אינה מגיבה]] — אין מי שיענה.");
@@ -892,6 +895,10 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "decon":
     case "removeAllergen":
     case "pumpOff":
+    case "removeRings":
+    case "callPolice":
+    case "reassure":
+    case "restrain":
     case "consultDoc":
     case "abdThrusts":
     case "backBlows":

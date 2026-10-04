@@ -31,7 +31,7 @@ function play(key: string, lines: string[], ok?: (c: Case) => boolean): Sim {
   const [id, variant] = key.split("/");
   let sim = startSim(content, id, seedWhere(id, variant, ok), variant);
   for (const line of lines) {
-    const r = step(content, sim, line.replace("{w}", String(sim.case.weight)));
+    const r = step(content, sim, line.replace("{w2}", String(sim.case.weight * 2)).replace("{w}", String(sim.case.weight)));
     expect(r.understood, `not understood: ${line}`).toBe(true);
     sim = r.sim;
   }
@@ -105,5 +105,54 @@ describe.skipIf(!hasContent)("protocol play-throughs", () => {
     expect(errors(sim)).toEqual([]);
     const flat = play("pulmonaryEdema/hypertensive", ["פותח וריד", "פוסיד 40 מג IV"], (c) => c.weight >= 60);
     expect(errors(flat).join()).toMatch(/מינון שגוי/);
+  });
+
+  it("crush, trapped: fluids before release keep the potassium down", () => {
+    let sim = play("crush/trapped", ["בודק זירה", "מוריד טבעות", "יש אלרגיות?", "פותח וריד", "סליין 1 ליטר לשעה", "מחבר מוניטור", "אקג 12", "פנטניל 100 מקג IV"]);
+    for (let i = 0; i < 12 && sim.state === "s1"; i++) sim = step(content, sim, "ממתין").sim;
+    expect(sim.state).toBe("released");
+    for (const l of ["בדיקת גפיים", "דיווח מקדים", "מפנה"]) sim = step(content, sim, l).sim;
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("crush, trapped without fluids: hyperkalemia after release, treated with calcium", () => {
+    let sim = play("crush/trapped", ["בודק זירה", "מחבר מוניטור"]);
+    for (let i = 0; i < 12 && sim.state === "s1"; i++) sim = step(content, sim, "ממתין").sim;
+    expect(sim.state).toBe("hyperK");
+    for (const l of ["אקג 12", "פותח וריד", "סליין 1000 מל", "מתייעץ עם רופא המוקד", "קלציום גלוקונט 1 גרם IV"]) sim = step(content, sim, l).sim;
+    expect(sim.state).toBe("treated");
+    expect(missed(sim)).toContain("עירוי סליין (1 L/hr) — לפני שחרור הרגל");
+  });
+
+  it("crush, freed an hour ago: hyperkalemia treated by the book", () => {
+    const sim = play("crush/freed", [
+      "בודק גפיים", "מתי זה קרה?", "מחבר מוניטור", "יש אלרגיות?", "פותח וריד", "סליין 1000 מל לשעה", "אקג 12", "מתייעץ עם רופא המוקד",
+      "קלציום גלוקונט 1 גרם IV", "ביקרבונט 50 מאק בטפטוף", "ונטולין 5 מג באינהלציה", "דיווח מקדים", "מפנה",
+    ]);
+    expect(sim.state).toBe("treated");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("delirium from infection: calm, look for the cause, consult, then low-dose sedation", () => {
+    const sim = play("delirium/infection", [
+      "בודק זירה", "מנסה להרגיע אותו", "מה הרקע?", "מתי זה התחיל?", "מה קרה לפני?", "סוכר", "מודד חום", "סטורציה", "בדיקת ראש",
+      "יש אלרגיות?", "פותח וריד", "מתייעץ עם רופא המוקד", "דורמיקום 2.5 מג IV", "סטורציה", "לחץ דם", "מפנה",
+    ]);
+    expect(sim.state).toBe("calm");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+  });
+
+  it("violent stimulant delirium: police, IM ketamine, monitoring; an IV first is flagged", () => {
+    const sim = play("delirium/stimulant", [
+      "מזעיק משטרה ושומר מרחק", "מה הוא לקח?", "קטמין {w2} מג לשריר", "סטורציה", "לחץ דם", "סוכר", "מודד חום", "פותח וריד", "מפנה",
+    ].map((l) => l), undefined);
+    expect(sim.state).toBe("sedated");
+    expect(errors(sim)).toEqual([]);
+    expect(missed(sim)).toEqual([]);
+    const early = play("delirium/stimulant", ["פותח וריד"]);
+    expect(errors(early).join()).toMatch(/משתולל/);
   });
 });

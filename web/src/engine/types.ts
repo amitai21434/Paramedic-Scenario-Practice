@@ -141,6 +141,10 @@ export type StateDef = {
   gcs?: Range;
   /** Wide QRS on the strip (paced, VT, bundle branch block). */
   wideQrs?: boolean;
+  /** Tall peaked T waves and flat P waves (hyperkalemia). */
+  peakedT?: boolean;
+  /** Confused (delirium): history questions go to the bystander. */
+  confused?: boolean;
   findings?: Partial<Record<FindingKey, Text>>;
   /** ST deviation per lead in mm, e.g. { II: 2, III: 3, aVF: 2, aVL: -1, V4R: 1.5 }. */
   st?: Record<string, number>;
@@ -341,6 +345,7 @@ export type EcgSnapshot = {
   seed: number;
   /** Organized rhythm without a pulse (PEA). */
   pulseless?: boolean;
+  peakedT?: boolean;
   /** "strip" = lead II, "12" = 12-lead, "right" = right-sided leads, "cpr" = compression artifact. */
   mode: "strip" | "12" | "right" | "cpr";
 };

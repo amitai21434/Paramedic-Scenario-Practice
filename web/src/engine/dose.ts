@@ -1,6 +1,7 @@
 // Unit handling for drug doses: "mg", "mcg/kg/min", "J", …
 
 const MASS: Record<string, number> = { g: 1000, mg: 1, mcg: 0.001 };
+const VOLUME: Record<string, number> = { L: 1000, ml: 1 };
 
 export function splitUnit(unit: string) {
   const parts = unit.split("/");
@@ -14,15 +15,16 @@ export function convert(value: number, from: string, to: string, weight: number)
   if (a.perMin !== b.perMin) return null;
   let v = value;
   if (a.base !== b.base) {
-    if (!(a.base in MASS) || !(b.base in MASS)) return null;
-    v = (v * MASS[a.base]) / MASS[b.base];
+    const family = [MASS, VOLUME].find((f) => a.base in f && b.base in f);
+    if (!family) return null;
+    v = (v * family[a.base]) / family[b.base];
   }
   if (a.perKg && !b.perKg) v *= weight;
   if (!a.perKg && b.perKg) v /= weight;
   return Math.round(v * 1000) / 1000;
 }
 
-const UNIT_LABELS: Record<string, string> = { mcg: "mcg", mg: "mg", g: "g", ml: "ml", iu: "IU", meq: "mEq", J: "J", unit: "מנות" };
+const UNIT_LABELS: Record<string, string> = { mcg: "mcg", mg: "mg", g: "g", ml: "ml", L: "L", iu: "IU", meq: "mEq", J: "J", unit: "מנות" };
 
 export function unitLabel(unit: string | null): string {
   if (!unit) return "";
