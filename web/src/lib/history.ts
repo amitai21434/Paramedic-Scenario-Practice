@@ -3,7 +3,7 @@
 // database calls are in results.ts.
 
 import { debrief, scorePct, stepCredit } from "../engine/debrief";
-import type { Content, Sim } from "../engine/types";
+import type { Content, Message, Sim } from "../engine/types";
 
 export type ResultDetails = {
   checklist: { label: string; critical: boolean; done: boolean; late: boolean }[];
@@ -27,6 +27,27 @@ export type ResultRow = {
 };
 
 export type NewResult = Omit<ResultRow, "id" | "user_id" | "created_at">;
+
+/** The whole run, kept only for users the admin picked (profiles.keep_transcripts). */
+export type Transcript = {
+  v: 1;
+  seed: number;
+  variant: string | null;
+  complication: string | null;
+  statements: { t: number; text: string }[];
+  messages: Message[];
+};
+
+export function buildTranscript(sim: Sim): Transcript {
+  return {
+    v: 1,
+    seed: sim.case.seed,
+    variant: sim.case.variantId ?? null,
+    complication: sim.comp?.id ?? null,
+    statements: sim.statements ?? [],
+    messages: sim.messages,
+  };
+}
 
 /** Runs with fewer student messages than this are tries, not practice — not saved. */
 const MIN_MESSAGES = 3;

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useAuth } from "../auth";
-import { LiveMonitor, PaperStrip, TwelveLead } from "../components/Ecg";
+import { Bubble, DispatchCard } from "../components/Chat";
+import { LiveMonitor } from "../components/Ecg";
 import { ScoreRing } from "../components/Score";
 import { debrief } from "../engine/debrief";
 import { clock, ecgSnapshot, pickTemplate, rollComplication, startSim, step } from "../engine/engine";
 import { effectiveVitals } from "../engine/physiology";
-import type { Content, Message, Sim } from "../engine/types";
+import type { Content, Sim } from "../engine/types";
 import { loadContent, logUnrecognized } from "../lib/content";
 import { weakSpots } from "../lib/history";
 import { loadResults, saveResult } from "../lib/results";
@@ -252,72 +253,6 @@ function HowToPlay() {
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Conversation
-// ---------------------------------------------------------------------------
-
-function DispatchCard({ text }: { text: string }) {
-  const [dispatch, ...scene] = text.replace(/^📟\s*/, "").split("\n");
-  return (
-    <div className="msg-in overflow-hidden rounded-xl border border-accent/40 bg-panel shadow-lg shadow-black/30">
-      <div className="flex items-center gap-2 border-b border-accent/30 bg-accent/15 px-4 py-2 text-xs font-semibold tracking-wide text-red-200">
-        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" /> קריאה מהמוקד
-      </div>
-      <div className="space-y-2 px-4 py-3">
-        <p dir="auto" className="text-lg font-semibold leading-snug">
-          {dispatch}
-        </p>
-        {scene.length > 0 && (
-          <p dir="auto" className="text-[15px] leading-relaxed text-ink/80">
-            {scene.join("\n")}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Bubble({ m }: { m: Message }) {
-  if (m.from === "user") {
-    return (
-      <div className="msg-in flex flex-col items-start gap-1">
-        <div dir="auto" className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-ss-sm bg-ink px-3.5 py-2 text-[15px] text-bg">
-          {m.text}
-        </div>
-        {m.items && m.items.length > 0 && (
-          <div className="flex max-w-[85%] flex-wrap gap-1">
-            {m.items.map((it, i) => (
-              <span key={i} dir="auto" className="rounded-full border border-line bg-panel px-2 py-0.5 text-[11px] text-muted">
-                {it}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-  if ("ecg" in m) {
-    return (
-      <figure className="msg-in space-y-1">
-        <figcaption className="font-mono text-xs text-muted">
-          {clock(m.t)} · {m.caption}
-        </figcaption>
-        <div dir="ltr" className="overflow-x-auto rounded-lg border border-line">
-          {m.ecg.mode === "12" || m.ecg.mode === "right" ? <TwelveLead snap={m.ecg} /> : <PaperStrip snap={m.ecg} />}
-        </div>
-      </figure>
-    );
-  }
-  return (
-    <div className="msg-in flex justify-end">
-      <div dir="auto" className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-se-sm border border-line bg-panel px-3.5 py-2 text-[15px] leading-relaxed">
-        <span className="me-2 font-mono text-xs text-muted">{clock(m.t)}</span>
-        {m.text}
-      </div>
     </div>
   );
 }
