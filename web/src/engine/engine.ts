@@ -194,6 +194,12 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // "בודק דימום" means the vaginal check only in a birth/pregnancy case; elsewhere it's a look for external bleeding.
   items = items.map((it) => (it.kind === "action" && it.id === "vaginal" && !vaginalCase(sim) && !/וגינ|נרתיק|פרינאום|תחבוש/.test(it.phrase) ? { ...it, id: "limbs" } : it));
 
+  // Oxygen in the same message as the bag is for the bag: do the bag first, then connect it.
+  if (items.some((it) => it.kind === "action" && it.id === "bvm")) {
+    const o2 = items.filter((it) => it.kind === "action" && it.id === "o2").map((it) => ({ ...it, withBag: true }));
+    if (o2.length) items = [...items.filter((it) => !(it.kind === "action" && it.id === "o2")), ...o2];
+  }
+
   // Expand compound actions ("מדדים" → pulse, BP, SpO2, RR).
   const expanded = items.flatMap((it) =>
     it.kind === "action" && actionDef(it.id).expands
@@ -394,7 +400,7 @@ export function evalCond(content: Content, sim: Sim, c: Cond, strict = false): b
     const n = sim.actions.filter(
       (a, i) =>
         a.action === c.done &&
-        (!c.sinceState || a.t >= sim.stateSince) &&
+        (!c.sinceState || (a.t >= sim.stateSince && a.state === sim.state)) &&
         (!c.sinceComp || afterComp(i)) &&
         (!c.joules || (a.joules !== undefined && a.joules >= c.joules[0] && a.joules <= c.joules[1])) &&
         (!c.joulesPerKg ||
@@ -406,7 +412,7 @@ export function evalCond(content: Content, sim: Sim, c: Cond, strict = false): b
   }
   if ("drug" in c) {
     const given = sim.actions.filter(
-      (a, i) => a.drug?.drug === c.drug && !(strict && a.drug.wrong) && (!c.sinceState || a.t >= sim.stateSince) && (!c.sinceComp || afterComp(i)),
+      (a, i) => a.drug?.drug === c.drug && !(strict && a.drug.wrong) && (!c.sinceState || (a.t >= sim.stateSince && a.state === sim.state)) && (!c.sinceComp || afterComp(i)),
     );
     if (c.min === undefined) return given.length > 0;
     return totalDose(content, sim, c.drug, given.map((a) => a.drug!)) >= num(sim, c.min, 0);
@@ -788,6 +794,8 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "o2":
       record();
       setFlag(sim, "o2");
+      // Oxygen said with the bag ("מנשים במפוח עם חמצן"), or while bagging, goes to the bag, not a mask.
+      if (!/מסכ|משקפ|ריזרבואר|nrb|rebreather/.test(item.phrase) && (item.withBag || flags.has("bvm"))) return say("חמצן מחובר למפוח.");
       return say(item.phrase.includes("משקפ") ? "חמצן במשקפיים — מחובר." : "חמצן במסכה — מחובר.");
     case "o2Stop":
       record();

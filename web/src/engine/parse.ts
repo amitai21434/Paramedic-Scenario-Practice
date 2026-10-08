@@ -7,7 +7,7 @@
 import { ACTIONS, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
 
 export type ParsedItem =
-  | { kind: "action"; id: string; joules?: number; phrase: string }
+  | { kind: "action"; id: string; joules?: number; phrase: string; withBag?: boolean }
   | { kind: "drug"; drug: string; value: number | null; unit: string | null; route: string | null; phrase: string };
 
 export type Parsed = {
@@ -148,6 +148,11 @@ function negatedBefore(tokens: string[], start: number): boolean {
   return false;
 }
 
+/** "ROSC לאחר החייאה", "מאז השוק": describes what already happened, not an order.
+ *  (Colloquial "אחרי (זה)" is left alone: it usually sequences the next order.) */
+const AFTER_TOKENS = ["לאחר", "מאז", "post"];
+const describedBefore = (tokens: string[], start: number) => start > 0 && AFTER_TOKENS.includes(tokens[start - 1]);
+
 /** Reads "<number> [unit] [/kg] [/min]" starting at i. */
 function readQuantity(tokens: string[], used: boolean[], i: number): { value: number; unit: string | null; end: number } | null {
   if (i >= tokens.length || used[i] || !isNumber(tokens[i])) return null;
@@ -242,6 +247,10 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       i = m.end - 1;
       continue;
     }
+    if (describedBefore(tokens, m.start)) {
+      i = m.end - 1;
+      continue;
+    }
     let value: number | null = null;
     let unit: string | null = null;
     let route: string | null = null;
@@ -308,6 +317,10 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     mark(m.start, m.end);
     if (negatedBefore(tokens, m.start)) {
       negated.push(m.phrase.key);
+      i = m.end - 1;
+      continue;
+    }
+    if (describedBefore(tokens, m.start)) {
       i = m.end - 1;
       continue;
     }

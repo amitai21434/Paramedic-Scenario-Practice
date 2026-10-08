@@ -93,6 +93,14 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(sim.flags).toContain("iv");
   });
 
+  it("oxygen said with the bag goes to the bag, not a face mask", () => {
+    const sim = run(startSim(content, "arrest", 3, "vf"), ["מתחיל עיסויים", "מנשים במפוח עם חמצן"]);
+    const text = (sim.messages.at(-1) as { text: string }).text;
+    expect(text).toMatch(/חמצן מחובר למפוח/);
+    expect(text).not.toMatch(/במסכה/);
+    expect(sim.flags).toContain("o2");
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

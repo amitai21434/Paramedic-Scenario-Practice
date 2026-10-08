@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { parse } from "../parse";
+import { notCarried, parse } from "../parse";
 
 const ids = (text: string) =>
   parse(text).items.map((i) => (i.kind === "action" ? i.id : `${i.drug}:${i.value ?? "?"}${i.unit ?? ""}${i.route ? "@" + i.route : ""}`));
 
 describe("parse", () => {
+  it("live-run phrasings: bleeding and uterus checks, two IVs, 'after' descriptions", () => {
+    expect(ids("בודקת את כמות הדימום ואת הרחם")).toEqual(["vaginal", "abdomen"]);
+    expect(ids("בודק דימום")).toEqual(["vaginal"]);
+    expect(ids("פותח שני ורידים")).toEqual(["iv"]);
+    expect(ids("בודק גודש ורידים")).toEqual(["jvd"]);
+    expect(ids("מכסה בשמיכה")).toEqual(["warm"]);
+    expect(ids("ROSC לאחר החייאה")).toEqual([]);
+    expect(ids("בודק דופק מאז השוק")).toEqual(["pulse"]);
+    expect(ids("חמצן ואחרי זה וריד")).toEqual(["o2", "iv"]);
+    expect(notCarried("פיטוצין 10 יחידות IM")).toEqual(["פיטוצין (אוקסיטוצין)"]);
+    expect(notCarried("מנתק משאבת אינסולין")).toEqual([]);
+  });
+
   it("reads several actions in one message", () => {
     expect(ids("מחבר מוניטור, מודד לחץ דם וסטורציה")).toEqual(["monitor", "bp", "spo2"]);
   });
