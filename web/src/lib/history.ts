@@ -2,7 +2,7 @@
 // "weak spots" summary computed from a student's saved results. Pure — the
 // database calls are in results.ts.
 
-import { debrief, scorePct } from "../engine/debrief";
+import { debrief, scorePct, stepCredit } from "../engine/debrief";
 import type { Content, Sim } from "../engine/types";
 
 export type ResultDetails = {
@@ -54,8 +54,8 @@ export function buildResult(content: Content, sim: Sim): NewResult | null {
 }
 
 /** Same score as the debrief: steps done, minus 10 points per error. */
-export const percent = (r: Pick<ResultRow, "score_done" | "score_total"> & { details?: Pick<ResultDetails, "errors"> }) =>
-  scorePct(r.score_done, r.score_total, r.details?.errors?.length ?? 0);
+export const percent = (r: Pick<ResultRow, "score_done" | "score_total"> & { details?: Partial<Pick<ResultDetails, "errors" | "checklist">> }) =>
+  scorePct(r.details?.checklist ? stepCredit(r.details.checklist) : r.score_done, r.score_total, r.details?.errors?.length ?? 0);
 
 export type WeakSpots = {
   runs: number;

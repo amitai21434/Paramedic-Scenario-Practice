@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { debrief } from "../debrief";
+import { debrief, scorePct, stepCredit } from "../debrief";
 import { rollComplication, startSim, step } from "../engine";
 import { finding } from "../physiology";
 import { generate } from "../generate";
@@ -66,6 +66,21 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(before).not.toBeNull();
     expect(items(sim).filter((i) => i.critical && i.doneAt === null).length).toBe(2);
     expect(debrief(content, sim).complication!.resolvedAt).toBeNull();
+    expect(debrief(content, sim).errors.some((e) => e.text.includes("החמיר לפני שטופל"))).toBe(true);
+  });
+
+  it("a twist never worsens before the student has had a turn to respond", () => {
+    let sim = untilStarted(startSim(content, "loc", 3, "hypo", ["vomit"]));
+    sim = run(sim, ["פותח וריד"]); // a long action right after it starts
+    expect(sim.comp!.worse).toBe(false); // 150 s in, but this was their first turn after seeing it
+    sim = run(sim, ["ממתין"]);
+    expect(sim.comp!.worse).toBe(true);
+  });
+
+  it("late steps count half", () => {
+    expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
+    expect(scorePct(1.5, 2, 0)).toBe(75);
+    expect(scorePct(1.5, 2, 1)).toBe(65);
   });
 
   it("lost IV: drugs need new access; a new IV resolves it", () => {

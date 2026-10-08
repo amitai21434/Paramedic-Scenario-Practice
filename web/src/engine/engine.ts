@@ -204,6 +204,7 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   }
   // A team works in parallel: a turn takes about as long as its longest task.
   if (!sim.ended) advance(content, sim, longest + 5 * (expanded.length - 1), out);
+  if (sim.comp && sim.comp.resolvedAt === null) sim.comp.turns = (sim.comp.turns ?? 0) + 1;
   out.flush(sim, t0);
   return { sim, understood: true };
 }
@@ -277,7 +278,8 @@ function complicationTick(content: Content, sim: Sim, out: Output) {
   if (evalCond(content, sim, def.resolvedWhen)) {
     comp.resolvedAt = sim.t;
     say(def.resolvedSay);
-  } else if (def.worsen && !comp.worse && sim.t - comp.t >= def.worsen.after) {
+  } else if (def.worsen && !comp.worse && (comp.turns ?? 0) >= 2 && sim.t - comp.t >= def.worsen.after) {
+    // (turns ≥ 2: the student has had at least one full turn to respond after seeing it.)
     comp.worse = true;
     for (const [k, d] of Object.entries(def.worsen.vitals ?? {}) as [VitalKey, number][]) {
       comp.vitals[k] = (comp.vitals[k] ?? 0) + d;
@@ -897,7 +899,11 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       record();
       setFlag(sim, "warming");
       setFlag(sim, "cooling", false);
-      return say("הוסרו בגדים רטובים, [[המטופל מכוסה|המטופלת מכוסה]] בשמיכות והסביבה מחוממת.");
+      return say(
+        /בגד|רטוב|מפשיט|מפשיטה/.test(item.phrase)
+          ? "הוסרו בגדים רטובים, [[המטופל מכוסה|המטופלת מכוסה]] בשמיכות והסביבה מחוממת."
+          : "[[המטופל מכוסה|המטופלת מכוסה]] בשמיכות והסביבה מחוממת.",
+      );
     case "uterineMassage":
       record();
       setFlag(sim, "uterineMassage");

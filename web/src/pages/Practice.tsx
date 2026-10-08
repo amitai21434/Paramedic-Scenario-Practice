@@ -444,6 +444,7 @@ function DebriefView({ content, sim, onNew }: { content: Content; sim: Sim; onNe
             {d.score.done}/{d.score.total} פעולות לפי הפרוטוקול
             {d.score.criticalMissed > 0 && <span className="ms-2 font-semibold text-red-300">❌ {d.score.criticalMissed} פעולות קריטיות חסרות</span>}
           </p>
+          {d.score.late > 0 && <p className="text-sm text-co2">⚠️ {d.score.late === 1 ? "פעולה אחת בוצעה" : `${d.score.late} פעולות בוצעו`} באיחור — חצי נקודה לכל אחת</p>}
           {d.score.penalty > 0 && (
             <p className="text-sm text-red-300">
               −{d.score.penalty} נקודות על {d.errors.length === 1 ? "טעות אחת" : `${d.errors.length} טעויות`} (10 לכל טעות)

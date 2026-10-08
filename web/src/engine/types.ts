@@ -386,6 +386,8 @@ export type Sim = {
     t: number;
     /** Number of actions recorded when it started. */
     n: number;
+    /** Student turns since it started (it can't worsen before they've had a turn to respond). */
+    turns?: number;
     resolvedAt: number | null;
     worse: boolean;
     vitals: Partial<Record<VitalKey, number>>;

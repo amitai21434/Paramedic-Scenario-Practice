@@ -25,7 +25,7 @@ export type Debrief = {
     unmatched: { t: number; text: string }[];
   };
   /** pct: protocol steps done, minus ERROR_PENALTY points per distinct error (never below 0). */
-  score: { done: number; total: number; criticalMissed: number; penalty: number; pct: number };
+  score: { done: number; total: number; criticalMissed: number; late: number; penalty: number; pct: number };
   /** The random complication that happened this run, if any. */
   complication: { title: string; at: number; resolvedAt: number | null } | null;
 };
@@ -41,10 +41,18 @@ const OUTCOMES: Record<NonNullable<Sim["ended"]>["how"], string> = {
 /** Points off the score for each distinct error (wrong drug, dose, contraindication…). */
 export const ERROR_PENALTY = 10;
 
-/** The headline score: share of protocol steps done, minus the error penalty. */
-export function scorePct(done: number, total: number, errors: number): number {
-  const base = total ? Math.round((100 * done) / total) : 0;
+/** A step done late is worth this much of a step on time. */
+export const LATE_CREDIT = 0.5;
+
+/** The headline score: protocol steps done (late ones count half), minus the error penalty. */
+export function scorePct(credit: number, total: number, errors: number): number {
+  const base = total ? Math.round((100 * credit) / total) : 0;
   return Math.max(0, base - ERROR_PENALTY * errors);
+}
+
+/** Step credit: 1 per step done on time, LATE_CREDIT per late step. */
+export function stepCredit(items: { done: boolean; late: boolean }[]): number {
+  return items.reduce((s, i) => s + (i.done ? (i.late ? LATE_CREDIT : 1) : 0), 0);
 }
 
 export function debrief(content: Content, sim: Sim): Debrief {
@@ -97,6 +105,14 @@ export function debrief(content: Content, sim: Sim): Debrief {
   const allWords = [...(c.template.diagnoses ?? []).flatMap((d) => d.words), ...[...shown.keys()].flatMap((k) => RHYTHM_NAMES[k]?.words ?? [])];
   const unmatched = statements.filter((s) => !allWords.some((w) => mentions(s.text, w)));
 
+  // A complication that got worse before it was handled counts as an error.
+  const errors = uniq("error");
+  if (sim.comp?.worse) {
+    const title = content.complications?.[sim.comp.id]?.title ?? sim.comp.id;
+    errors.push({ t: sim.comp.t, text: `הסיבוך "${title}" החמיר לפני שטופל.` });
+  }
+  const credit = stepCredit(checklist.map((i) => ({ done: i.doneAt !== null, late: i.late })));
+
   return {
     title: c.title,
     complication: sim.comp
@@ -109,7 +125,7 @@ export function debrief(content: Content, sim: Sim): Debrief {
     ),
     outcome: g(sim.ended ? OUTCOMES[sim.ended.how] : "התרחיש לא הסתיים."),
     checklist,
-    errors: uniq("error"),
+    errors,
     warnings: uniq("warn"),
     noFlow: sim.noFlow,
     protocols: c.protocols.map((id) => ({ id, title: content.protocols[id] ?? id })),
@@ -118,8 +134,9 @@ export function debrief(content: Content, sim: Sim): Debrief {
       done: checklist.filter((i) => i.doneAt !== null).length,
       total: checklist.length,
       criticalMissed: checklist.filter((i) => i.critical && i.doneAt === null).length,
-      penalty: ERROR_PENALTY * uniq("error").length,
-      pct: scorePct(checklist.filter((i) => i.doneAt !== null).length, checklist.length, uniq("error").length),
+      late: checklist.filter((i) => i.late).length,
+      penalty: ERROR_PENALTY * errors.length,
+      pct: scorePct(credit, checklist.length, errors.length),
     },
   };
 }
