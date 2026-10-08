@@ -492,7 +492,11 @@ function giveDrug(content: Content, sim: Sim, item: Extract<ParsedItem, { kind: 
 
 function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiven, prior: DrugGiven[], shown: string) {
   const name = drugDef(g.drug).name;
-  if (sim.case.allergyDrug === g.drug) feedback(sim, "error", `${shown}: ${sim.case.sex === "m" ? "המטופל אלרגי" : "המטופלת אלרגית"} ל${name} (נאמר בתשאול רגישויות).`);
+  if (sim.case.allergyDrug === g.drug) {
+    const who = sim.case.sex === "m" ? "המטופל אלרגי" : "המטופלת אלרגית";
+    const asked = evalCond(content, sim, { done: "askAllergies" }) ? "למרות שנאמר בתשאול רגישויות" : "לא נשאלה שאלה על רגישויות";
+    feedback(sim, "error", `${shown}: ${who} ל${name} (${asked}).`);
+  }
   if (!rule || !rule.status) {
     feedback(sim, "warn", `${shown}: ${name} אינו חלק מהטיפול לפי הפרוטוקול בתרחיש הזה.`);
   } else if (rule.status === "wrong") {
@@ -797,7 +801,8 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       record();
       if (pulse && (v.gcs ?? 15) >= 9) feedback(sim, "warn", "הנשמה במפוח למטופל בהכרה ונושם.");
       setFlag(sim, "bvm");
-      return say("מנשימים במפוח עם חמצן.");
+      // Newborns are ventilated with room air first (02-09) — don't claim oxygen unless it was said.
+      return say(item.phrase.includes("חמצן") || flags.has("o2") ? "מנשימים במפוח עם חמצן." : "מנשימים במפוח.");
     case "cpap":
       record();
       if ((v.gcs ?? 15) < 13 || !pulse) feedback(sim, "error", "CPAP למטופל עם ירידה במצב ההכרה.");

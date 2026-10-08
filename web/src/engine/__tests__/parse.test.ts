@@ -145,3 +145,13 @@ describe("phrasing sweep regressions", () => {
     expect(a("הגענו לבית החולים")).toEqual(["end"]);
   });
 });
+
+describe("demo regressions", () => {
+  const a = (s: string) => parse(s).items.map((i) => (i.kind === "action" ? i.id : `${i.drug}@${i.route}`));
+  it("'the baby' isn't an APGAR check", () => {
+    expect(a("מייבש ועוטף את התינוק")).toEqual(["dryBaby"]);
+  });
+  it("two route words stay with the drug", () => {
+    expect(a("אדרנלין 0.5 מג לשריר בירך")).toEqual(["adrenaline@im"]);
+  });
+});

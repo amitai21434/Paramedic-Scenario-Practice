@@ -246,10 +246,11 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
           continue;
         }
       }
-      if (route === null) {
+      {
+        // A second route word belongs to the same drug ("לשריר בירך"), not to another action.
         const r = bestAt(tokens, used, j, ROUTE_PHRASES, true);
         if (r) {
-          route = r.phrase.key;
+          route ??= r.phrase.key;
           mark(r.start, r.end);
           j = r.end - 1;
           continue;
