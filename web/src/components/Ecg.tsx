@@ -1,4 +1,4 @@
-import { useId, useMemo } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { HZ, LAYOUT_12, LAYOUT_RIGHT, leadSamples, makeSchedule } from "../engine/ecg";
 import type { EcgSnapshot } from "../engine/types";
 
@@ -105,4 +105,98 @@ export function TwelveLead({ snap }: { snap: EcgSnapshot }) {
       ))}
     </svg>
   );
+}
+
+/**
+ * The monitor's live lead II: the trace is drawn left to right like a real defibrillator
+ * screen, erasing just ahead of the sweep. `onBeat` fires on each QRS (for the heart icon).
+ */
+export function LiveMonitor({ snap, seconds = 5, onBeat }: { snap: EcgSnapshot; seconds?: number; onBeat?: () => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const beatRef = useRef(onBeat);
+  beatRef.current = onBeat;
+  // A 12-second loop of samples and the beat times inside it.
+  const data = useMemo(() => {
+    const loop = 12;
+    const sched = makeSchedule(snap, loop);
+    return {
+      loop,
+      samples: leadSamples(snap, "II", 0, loop, sched),
+      beats: snap.mode === "cpr" ? [] : sched.qrs.map((b) => b.t).filter((t) => t >= 0 && t < loop),
+    };
+  }, [snap]);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const { loop, samples, beats } = data;
+    const valueAt = (t: number) => samples[Math.floor((((t % loop) + loop) % loop) * HZ)] ?? 0;
+
+    let raf = 0;
+    let prev = 0;
+    const start = performance.now();
+    const draw = (now: number) => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const t = reduced ? seconds : (now - start) / 1000;
+      const head = ((t % seconds) / seconds) * w;
+      const gap = w * 0.04;
+      const mid = h * 0.62;
+      const scale = h * 0.32;
+
+      ctx.fillStyle = "#020604";
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = "rgba(62,224,122,0.07)";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < w; x += w / 10) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#3ee07a";
+      ctx.lineWidth = 1.8;
+      ctx.lineJoin = "round";
+      ctx.shadowColor = "rgba(62,224,122,0.6)";
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      let pen = false;
+      for (let x = 0; x <= w; x += 1) {
+        // Columns just ahead of the sweep are erased; behind it is the newest trace, ahead the previous sweep.
+        if (!reduced && x > head && x < head + gap) {
+          pen = false;
+          continue;
+        }
+        const age = x <= head ? (head - x) / w : (head + w - x) / w;
+        const y = mid - valueAt(t - age * seconds) * scale;
+        if (pen) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+        pen = true;
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      if (!reduced) {
+        const a = prev % loop;
+        const b = t % loop;
+        if (beats.some((bt) => (a <= b ? bt > a && bt <= b : bt > a || bt <= b))) beatRef.current?.();
+        prev = t;
+        raf = requestAnimationFrame(draw);
+      }
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [data, seconds]);
+
+  return <canvas ref={ref} className="block h-28 w-full" role="img" aria-label="מוניטור — רצועת קצב חיה" />;
 }

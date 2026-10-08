@@ -333,7 +333,8 @@ export type ActionRecord = {
 export type Feedback = { t: number; kind: "error" | "warn"; text: string };
 
 export type Message =
-  | { from: "user"; text: string }
+  /** items: what the parser understood, for the chips under the message. */
+  | { from: "user"; text: string; items?: string[] }
   | { from: "examiner"; text: string; t: number }
   | { from: "examiner"; t: number; ecg: EcgSnapshot; caption: string };
 

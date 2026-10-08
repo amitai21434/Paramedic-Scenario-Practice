@@ -32,6 +32,12 @@ const DEFAULT_VITALS: Vitals = { hr: 80, sbp: 125, dbp: 80, rr: 16, spo2: 97, et
 const actionDef = (id: string) => ACTIONS.find((a) => a.id === id)!;
 const drugDef = (id: string) => DRUGS.find((d) => d.id === id)!;
 
+function itemLabel(it: ParsedItem): string {
+  if (it.kind === "action") return actionDef(it.id).label + (it.joules ? ` ${it.joules}J` : "");
+  const dose = it.value !== null ? ` ${it.value}${it.unit ? ` ${unitLabel(it.unit)}` : ""}` : "";
+  return `${drugDef(it.drug).name}${dose}${it.route ? ` ${ROUTE_LABELS[it.route] ?? it.route}` : ""}`;
+}
+
 export function clock(t: number): string {
   const m = Math.floor(t / 60);
   const s = Math.floor(t % 60);
@@ -179,6 +185,9 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
       ? actionDef(it.id).expands!.map((id) => ({ kind: "action" as const, id, phrase: it.phrase }))
       : [it],
   );
+  // What was understood, shown under the student's message (never whether it was right).
+  const typed = sim.messages[sim.messages.length - 1];
+  if (typed.from === "user") typed.items = items.map(itemLabel);
 
   let longest = 0;
   for (const item of expanded) {

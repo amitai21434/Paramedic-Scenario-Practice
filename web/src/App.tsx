@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { HashRouter, Link, Navigate, Route, Routes } from "react-router";
+import { HashRouter, Navigate, NavLink, Route, Routes } from "react-router";
 import { useAuth } from "./auth";
 import { supabase } from "./lib/supabase";
 import Admin from "./pages/Admin";
@@ -43,17 +43,30 @@ function Home() {
   return <Navigate to={profile?.role === "admin" ? "/admin" : "/practice"} replace />;
 }
 
+function Tab({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        `rounded-md px-3 py-1.5 font-medium transition ${isActive ? "bg-panel-2 text-ink shadow-[inset_0_-2px_0_var(--color-accent)]" : "text-muted hover:text-ink"}`
+      }
+    >
+      {children}
+    </NavLink>
+  );
+}
+
 function Header() {
   const { session, profile } = useAuth();
   if (!session || !profile) return null;
   return (
-    <header className="border-b border-neutral-200 dark:border-neutral-800">
-      <nav className="mx-auto flex max-w-5xl items-center gap-4 p-4 text-sm">
-        <Link to="/practice" className="font-medium">Practice</Link>
-        <Link to="/history">History</Link>
-        {profile.role === "admin" && <Link to="/admin">Admin</Link>}
-        <span className="ml-auto text-neutral-500" dir="auto">{profile.name || profile.email}</span>
-        <button className="hover:underline" onClick={() => supabase.auth.signOut()}>
+    <header className="sticky top-0 z-30 border-b border-line bg-bg/85 backdrop-blur">
+      <nav className="mx-auto flex max-w-6xl items-center gap-1 px-4 py-2.5 text-sm">
+        <Tab to="/practice">Practice</Tab>
+        <Tab to="/history">History</Tab>
+        {profile.role === "admin" && <Tab to="/admin">Admin</Tab>}
+        <span className="ml-auto text-muted" dir="auto">{profile.name || profile.email}</span>
+        <button className="ms-3 rounded-md px-2 py-1 text-muted transition hover:bg-panel-2 hover:text-ink" onClick={() => supabase.auth.signOut()}>
           Sign out
         </button>
       </nav>

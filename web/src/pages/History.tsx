@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "../auth";
+import { ScoreTrend } from "../components/Score";
 import { clock } from "../engine/engine";
 import { percent, weakSpots, type ResultRow } from "../lib/history";
 import { clearResults, loadResults } from "../lib/results";
@@ -32,13 +33,20 @@ export default function History() {
 
   return (
     <main dir="rtl" className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6">
-      <h1 className="text-lg font-semibold">ההיסטוריה שלי</h1>
+      <h1 className="text-lg font-bold">ההיסטוריה שלי</h1>
       {error && <p className="rounded bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">שגיאה: {error}</p>}
       {!rows && !error && <p className="text-sm text-neutral-500">טוען…</p>}
       {rows?.length === 0 && <p className="text-sm text-neutral-500">עוד אין תרחישים שהסתיימו. תרחיש נשמר כאן כשמסיימים אותו.</p>}
 
+      {rows && rows.length >= 2 && (
+        <section className="card space-y-2 p-4">
+          <h2 className="font-semibold">הציונים שלך לאורך זמן</h2>
+          <ScoreTrend points={[...rows].reverse().slice(-30).map((r) => ({ score: percent(r), label: r.title, date: date(r.created_at) }))} />
+        </section>
+      )}
+
       {spots && spots.runs > 0 && (
-        <section className="space-y-4">
+        <section className="card space-y-4 p-4">
           <h2 className="font-semibold">נקודות לחיזוק ({spots.runs} תרחישים)</h2>
           <Block title="פעולות שהכי הרבה מפספסים">
             {spots.missed.map((m) => (

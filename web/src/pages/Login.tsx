@@ -35,8 +35,15 @@ export default function Login() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-sm space-y-6 p-6 pt-20">
-      <h1 className="text-2xl font-semibold">{mode === "signin" ? "Sign in" : "Reset password"}</h1>
+    <main className="mx-auto w-full max-w-sm space-y-6 p-6 pt-16">
+      <div className="space-y-3 text-center">
+        <svg viewBox="0 0 120 40" className="mx-auto h-10 w-28 text-accent" aria-hidden>
+          <path d="M0 22 H38 L44 10 L52 34 L60 2 L68 22 H120" fill="none" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+        </svg>
+        <p className="text-sm font-semibold tracking-wide text-muted">Paramedic Scenario Practice</p>
+      </div>
+      <div className="card space-y-5 p-6">
+      <h1 className="text-2xl font-bold">{mode === "signin" ? "Sign in" : "Reset password"}</h1>
       <form onSubmit={onSubmit} className="space-y-3">
         <input
           type="email"
@@ -74,7 +81,8 @@ export default function Login() {
       >
         {mode === "signin" ? "Forgot password?" : "Back to sign in"}
       </button>
-      <p className="text-sm text-neutral-500">Access is by invitation only.</p>
+      </div>
+      <p className="text-center text-sm text-neutral-500">Access is by invitation only.</p>
     </main>
   );
 }

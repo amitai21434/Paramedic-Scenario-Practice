@@ -1,29 +1,70 @@
 @import "tailwindcss";
 
-:root {
-  color-scheme: light dark;
-  --background: #ffffff;
-  --foreground: #171717;
+/* One fixed look — a patient-monitor screen. "dark:" styles always apply. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-bg: #06090b;
+  --color-panel: #0d1317;
+  --color-panel-2: #131b20;
+  --color-line: #1f2b32;
+  --color-ink: #e6edf0;
+  --color-muted: #8b9ba4;
+  --color-accent: #e5484d;
+  --color-accent-hover: #f2555a;
+  /* Monitor channel colours */
+  --color-ecg: #3ee07a;
+  --color-spo2: #45d4f0;
+  --color-nibp: #ff6b6b;
+  --color-co2: #f5d04a;
+  --font-sans: "Heebo", system-ui, "Segoe UI", Roboto, "Noto Sans Hebrew", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, "Segoe UI", Roboto, "Noto Sans Hebrew", sans-serif;
+  background:
+    radial-gradient(1200px 500px at 50% -200px, #12202a 0%, transparent 70%),
+    var(--color-bg);
+  background-attachment: fixed;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  min-height: 100vh;
 }
 
 @layer components {
   .input {
-    @apply rounded border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700;
+    @apply rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-ecg/60 focus:outline-none focus:ring-2 focus:ring-ecg/20;
   }
   .btn {
-    @apply rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300;
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-black/40 transition hover:bg-accent-hover disabled:opacity-40;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink transition hover:border-muted/60 hover:bg-panel-2 disabled:opacity-40;
+  }
+  .card {
+    @apply rounded-xl border border-line bg-panel/90 shadow-lg shadow-black/30;
+  }
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.msg-in {
+  animation: msg-in 220ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-in {
+    animation: none;
   }
 }
