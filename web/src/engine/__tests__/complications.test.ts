@@ -77,6 +77,22 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(sim.comp!.worse).toBe(true);
   });
 
+  it("'checking the bleeding' is the vaginal check only in a birth case; elsewhere the limbs", () => {
+    const last = (sim: Sim) => (sim.messages.at(-1) as { text: string }).text;
+    let sim = run(startSim(content, "obstetric", 3, "pph"), ["בודקת את כמות הדימום ואת הרחם"]);
+    expect(last(sim)).toMatch(/דימום וגינלי/);
+    expect(last(sim)).toMatch(/בטן: רחם רך/);
+    sim = run(startSim(content, "hemorrhage", 3, "limb"), ["בודק דימום"]);
+    expect(last(sim)).toMatch(/גפיים: קטיעה/);
+  });
+
+  it("drugs we don't carry are named honestly, and the rest of the message still runs", () => {
+    const sim = run(startSim(content, "obstetric", 3, "pph"), ["פותח שני ורידים, פיטוצין 10 יחידות IM"]);
+    const texts = sim.messages.filter((m) => m.from === "examiner").map((m) => ("text" in m ? m.text : "")).join(" ");
+    expect(texts).toMatch(/פיטוצין.*לא נמצא בתיק/);
+    expect(sim.flags).toContain("iv");
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

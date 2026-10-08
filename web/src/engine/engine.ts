@@ -5,7 +5,7 @@
 import { convert, splitUnit, unitLabel } from "./dose";
 import { generate, resolve, rng, roll } from "./generate";
 import { ACTIONS, DRUGS, ROUTE_LABELS } from "./lexicon";
-import { parse, type ParsedItem } from "./parse";
+import { notCarried, parse, type ParsedItem } from "./parse";
 import { consciousnessText, current, effectiveVitals, finding, hasPulse, isShockable, minSbp, RHYTHMS, snapshot, stateDef } from "./physiology";
 import type {
   AnswerKey,
@@ -173,6 +173,14 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   }
   sim.pending = null;
 
+  // Drugs that aren't carried are named honestly, and the rest of the message still runs.
+  const missing = notCarried(text);
+  for (const label of missing) out.text(`${label} — לא נמצא בתיק התרופות לפי הפרוטוקול.`);
+  if (!items.length && missing.length) {
+    out.flush(sim, t0);
+    return { sim, understood: true };
+  }
+
   if (!items.length) {
     out.text(
       parsed.negated.length
@@ -182,6 +190,9 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
     out.flush(sim);
     return { sim, understood: parsed.negated.length > 0 };
   }
+
+  // "בודק דימום" means the vaginal check only in a birth/pregnancy case; elsewhere it's a look for external bleeding.
+  items = items.map((it) => (it.kind === "action" && it.id === "vaginal" && !vaginalCase(sim) && !/וגינ|נרתיק|פרינאום|תחבוש/.test(it.phrase) ? { ...it, id: "limbs" } : it));
 
   // Expand compound actions ("מדדים" → pulse, BP, SpO2, RR).
   const expanded = items.flatMap((it) =>
@@ -633,6 +644,8 @@ function answer(sim: Sim, key: AnswerKey): string {
       return "לא יודע[[|ת]].";
   }
 }
+
+const vaginalCase = (sim: Sim) => Object.values(sim.case.template.states).some((s) => s.findings?.vaginal !== undefined);
 
 const canTalk = (sim: Sim) => {
   const { vitals, pulse } = snapshot(sim);

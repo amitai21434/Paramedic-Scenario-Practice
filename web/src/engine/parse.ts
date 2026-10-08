@@ -4,7 +4,7 @@
 // lexicon. Drugs are matched first and take the dose/unit/route words that
 // follow them, so "אדרנלין 1 מג IV" doesn't also read as "open an IV".
 
-import { ACTIONS, DRUGS, NEGATIONS, PER_KG, PER_MIN, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
+import { ACTIONS, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
 
 export type ParsedItem =
   | { kind: "action"; id: string; joules?: number; phrase: string }
@@ -76,7 +76,7 @@ function distance(a: string, b: string, max: number): number {
 }
 
 // Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
-const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה"].map(normalize));
+const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום"].map(normalize));
 
 /** 0 = exact, 1 = typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
@@ -105,6 +105,7 @@ const ROUTE_PHRASES = compile(Object.entries(ROUTES).map(([id, words]) => ({ id,
 const UNIT_PHRASES = compile(Object.entries(UNITS).map(([id, words]) => ({ id, words })));
 const PER_KG_TOKENS = PER_KG.map((w) => tokenize(w)[0]);
 const PER_MIN_TOKENS = PER_MIN.map((w) => tokenize(w)[0]);
+const NOT_CARRIED_PHRASES = compile(NOT_CARRIED);
 const NEGATION_TOKENS = NEGATIONS.map((w) => tokenize(w)[0]).filter(Boolean);
 
 type Match = { phrase: Phrase; start: number; end: number; cost: number };
@@ -197,6 +198,18 @@ function isStatement(clause: string): boolean {
     }
     return false;
   });
+}
+
+/** Labels of drugs named in the text that aren't in the formulary (exact names only). */
+export function notCarried(text: string): string[] {
+  const tokens = tokenize(text);
+  const used = tokens.map(() => false);
+  const ids = new Set<string>();
+  for (let i = 0; i < tokens.length; i++) {
+    const m = bestAt(tokens, used, i, NOT_CARRIED_PHRASES, true);
+    if (m && !negatedBefore(tokens, m.start)) ids.add(m.phrase.key);
+  }
+  return NOT_CARRIED.filter((d) => ids.has(d.id)).map((d) => d.label);
 }
 
 export function parse(text: string): Parsed {
