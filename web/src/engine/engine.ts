@@ -65,15 +65,19 @@ export function startSim(content: Content, templateId: string, seed: number, var
   if (ids.length) {
     const at = rng((seed ^ 0x2545f491) >>> 0).int(90, 420);
     c.complication = { ids, at, until: at + 900 };
+  }
+  // A patient with a drug allergy can react if given that drug — its debrief items must exist.
+  const possible = c.allergyDrug && content.complications?.allergicReaction ? [...new Set([...ids, "allergicReaction"])] : ids;
+  if (possible.length) {
     // Each complication's debrief items count only if it actually happened.
-    const extra = ids.flatMap((id) =>
+    const extra = possible.flatMap((id) =>
       content.complications![id].checklist.map((item) => ({
         ...item,
         onlyIf: item.onlyIf ? { all: [{ comp: id }, item.onlyIf] } : { comp: id },
       })),
     );
     const drugs = { ...c.template.drugs };
-    for (const id of ids)
+    for (const id of possible)
       for (const [d, rule] of Object.entries(content.complications![id].drugs ?? {})) drugs[d] = { ...rule, ...drugs[d] };
     c.template = { ...c.template, checklist: [...c.template.checklist, ...extra], drugs };
   }
@@ -254,16 +258,15 @@ function applyRules(content: Content, sim: Sim, out: Output) {
 /** Starts, resolves or worsens this run's complication (see ComplicationDef). */
 function complicationTick(content: Content, sim: Sim, out: Output) {
   const plan = sim.case.complication;
-  if (!plan || sim.ended) return;
+  if (sim.ended) return;
   const say = (t: Text | undefined) => t && out.text(resolve(t, sim.case));
   if (!sim.comp) {
-    if (sim.t < plan.at || sim.t > plan.until) return;
+    // (A complication can also start without a plan — e.g. an allergic reaction to a drug.)
+    if (!plan || sim.t < plan.at || sim.t > plan.until) return;
     for (const id of plan.ids) {
       const def = content.complications?.[id];
       if (!def || !evalCond(content, sim, def.eligible)) continue;
-      for (const f of def.clearFlags ?? []) setFlag(sim, f, false);
-      sim.comp = { id, t: sim.t, n: sim.actions.length, resolvedAt: null, worse: false, vitals: { ...def.vitals }, cap: { ...def.cap }, findings: resolveFindings(sim, def.findings) };
-      say(def.say);
+      startComplication(content, sim, id, out);
       return;
     }
     return;
@@ -283,6 +286,14 @@ function complicationTick(content: Content, sim: Sim, out: Output) {
     Object.assign(comp.findings, resolveFindings(sim, def.worsen.findings));
     say(def.worsen.say);
   }
+}
+
+function startComplication(content: Content, sim: Sim, id: string, out: Output) {
+  const def = content.complications?.[id];
+  if (!def) return;
+  for (const f of def.clearFlags ?? []) setFlag(sim, f, false);
+  sim.comp = { id, t: sim.t, n: sim.actions.length, resolvedAt: null, worse: false, vitals: { ...def.vitals }, cap: { ...def.cap }, findings: resolveFindings(sim, def.findings) };
+  out.text(resolve(def.say, sim.case));
 }
 
 function resolveFindings(sim: Sim, f: Partial<Record<FindingKey, Text>> | undefined): Partial<Record<FindingKey, string>> {
@@ -471,9 +482,12 @@ function giveDrug(content: Content, sim: Sim, item: Extract<ParsedItem, { kind: 
   sim.actions.push({ action: `drug:${item.drug}`, t: sim.t, state: sim.state, drug: given });
   if (SEDATIVES.includes(item.drug)) setFlag(sim, "sedated");
 
+  // No "given ✔" reply: the chips under the message already show what was understood,
+  // and a confirmation reads like approval. Only real effects get a reply (from the rules).
   const shown = `${def.name} ${item.value} ${unitLabel(unit)}${route ? ` ${ROUTE_LABELS[route] ?? route}` : ""}`;
-  out.text(`✔ ${shown} — ניתן.`);
   checkDrug(content, sim, rule, given, priorSame, shown);
+  // A drug the patient is allergic to causes a reaction (when no other complication is running).
+  if (sim.case.allergyDrug === item.drug && !sim.comp) startComplication(content, sim, "allergicReaction", out);
 }
 
 function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiven, prior: DrugGiven[], shown: string) {
@@ -778,7 +792,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "needle":
     case "backup":
       record();
-      return say(`✔ ${actionDef(id).label} — בוצע.`);
+      return say(`${actionDef(id).label} — בוצע.`);
     case "bvm":
       record();
       if (pulse && (v.gcs ?? 15) >= 9) feedback(sim, "warn", "הנשמה במפוח למטופל בהכרה ונושם.");
@@ -814,7 +828,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "chestThrusts":
       if (!pulse) return perform(content, sim, { kind: "action", id: "cpr", phrase: item.phrase }, out);
       record();
-      return say("✔ לחיצות חזה — בוצע.");
+      return say("לחיצות חזה — בוצע.");
     case "lucas":
       record();
       if (pulse) return say("[[למטופל|למטופלת]] יש דופק.");
@@ -857,7 +871,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say("בוצע תמרון ולסלבה.");
     case "stimulate":
       record();
-      return say("✔ גירוי מעורר — בוצע.");
+      return say("גירוי מעורר — בוצע.");
     case "positionSide":
       record();
       setFlag(sim, "sitting", false);
@@ -888,11 +902,11 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "burnDress":
       record();
       setFlag(sim, id);
-      return say(`✔ ${actionDef(id).label} — בוצע.`);
+      return say(`${actionDef(id).label} — בוצע.`);
     case "cSpine":
       record();
       setFlag(sim, "cSpine");
-      return say("✔ עמוד השדרה הצווארי מקובע.");
+      return say("עמוד השדרה הצווארי מקובע.");
     case "prepareDelivery":
     case "deliver":
     case "cordCheck":
@@ -924,7 +938,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "magill":
     case "strokeCenter":
       record();
-      return say(`✔ ${actionDef(id).label} — בוצע.`);
+      return say(`${actionDef(id).label} — בוצע.`);
     case "prealert":
       record();
       return say("בית החולים קיבל את הדיווח המקדים.");

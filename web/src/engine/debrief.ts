@@ -24,7 +24,8 @@ export type Debrief = {
     rhythms: { label: string; statedAt: number | null }[];
     unmatched: { t: number; text: string }[];
   };
-  score: { done: number; total: number; criticalMissed: number };
+  /** pct: protocol steps done, minus ERROR_PENALTY points per distinct error (never below 0). */
+  score: { done: number; total: number; criticalMissed: number; penalty: number; pct: number };
   /** The random complication that happened this run, if any. */
   complication: { title: string; at: number; resolvedAt: number | null } | null;
 };
@@ -36,6 +37,15 @@ const OUTCOMES: Record<NonNullable<Sim["ended"]>["how"], string> = {
   good: "[[המטופל|המטופלת]] [[התייצב|התייצבה]].",
   bad: "מצב [[המטופל|המטופלת]] הידרדר.",
 };
+
+/** Points off the score for each distinct error (wrong drug, dose, contraindication…). */
+export const ERROR_PENALTY = 10;
+
+/** The headline score: share of protocol steps done, minus the error penalty. */
+export function scorePct(done: number, total: number, errors: number): number {
+  const base = total ? Math.round((100 * done) / total) : 0;
+  return Math.max(0, base - ERROR_PENALTY * errors);
+}
 
 export function debrief(content: Content, sim: Sim): Debrief {
   const c = sim.case;
@@ -108,6 +118,8 @@ export function debrief(content: Content, sim: Sim): Debrief {
       done: checklist.filter((i) => i.doneAt !== null).length,
       total: checklist.length,
       criticalMissed: checklist.filter((i) => i.critical && i.doneAt === null).length,
+      penalty: ERROR_PENALTY * uniq("error").length,
+      pct: scorePct(checklist.filter((i) => i.doneAt !== null).length, checklist.length, uniq("error").length),
     },
   };
 }

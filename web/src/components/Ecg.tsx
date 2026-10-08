@@ -198,5 +198,5 @@ export function LiveMonitor({ snap, seconds = 5, onBeat }: { snap: EcgSnapshot; 
     return () => cancelAnimationFrame(raf);
   }, [data, seconds]);
 
-  return <canvas ref={ref} className="block h-28 w-full" role="img" aria-label="מוניטור — רצועת קצב חיה" />;
+  return <canvas ref={ref} className="block h-16 w-full md:h-28" role="img" aria-label="מוניטור — רצועת קצב חיה" />;
 }

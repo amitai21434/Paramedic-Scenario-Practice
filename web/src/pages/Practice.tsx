@@ -124,9 +124,12 @@ export default function Practice() {
 
       {sim && content && (
         <div className="flex flex-1 flex-col gap-4 md:flex-row-reverse md:items-start">
-          <aside className="md:sticky md:top-4 md:w-80 md:shrink-0">
-            <MonitorPanel sim={sim} />
-          </aside>
+          {/* Nothing at all until the monitor is connected — not even a placeholder. */}
+          {sim.flags.includes("monitor") && (
+            <aside className={`${sim.ended ? "" : "sticky top-12 z-20 -mx-4 bg-bg/95 px-4 pb-2 pt-1 backdrop-blur"} md:sticky md:top-16 md:mx-0 md:w-80 md:shrink-0 md:bg-transparent md:p-0 md:backdrop-blur-none`}>
+              <MonitorPanel sim={sim} />
+            </aside>
+          )}
           <section className="flex min-w-0 flex-1 flex-col">
             <div className="flex-1 space-y-3 pb-4">
               {sim.messages.map((m, i) => (i === 0 && m.from === "examiner" && "text" in m ? <DispatchCard key={i} text={m.text} /> : <Bubble key={i} m={m} />))}
@@ -338,29 +341,16 @@ function MonitorPanel({ sim }: { sim: Sim }) {
   const key = snap ? `${snap.rhythm}|${snap.hr}|${snap.mode}|${snap.wide}|${snap.pulseless}|${snap.peakedT}|${JSON.stringify(snap.st)}` : "";
   const stable = useMemo(() => snap, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!connected || !stable) {
-    return (
-      <div dir="ltr" className="overflow-hidden rounded-xl border border-line bg-black/80 font-mono shadow-lg shadow-black/40">
-        <div className="flex h-28 items-center justify-center text-sm text-muted">
-          <span dir="rtl">מוניטור לא מחובר</span>
-        </div>
-        {bp && (
-          <div className="grid grid-cols-1 border-t border-line">
-            <Reading label={`NIBP ${clock(bp.t)}`} value={bp.value === null ? "---" : `${bp.value}/${dbp?.value}`} color="text-nibp" />
-          </div>
-        )}
-      </div>
-    );
-  }
+  if (!connected || !stable) return null;
   const hr = cpr ? "--" : v.hr === null ? "---" : v.hr;
   return (
     <div dir="ltr" className="overflow-hidden rounded-xl border border-line bg-black font-mono text-white shadow-lg shadow-black/40">
-      <div className="flex items-center justify-between px-3 pt-2 text-[10px] text-ecg/80">
+      <div className="hidden items-center justify-between px-3 pt-2 text-[10px] text-ecg/80 md:flex">
         <span>II · 25 mm/s</span>
         <span>{cpr ? "CPR" : "MONITOR"}</span>
       </div>
       <LiveMonitor snap={stable} onBeat={() => setBeat((b) => b + 1)} />
-      <div className="grid grid-cols-2 gap-px border-t border-line bg-line">
+      <div className="grid grid-cols-4 gap-px border-t border-line bg-line md:grid-cols-2">
         <Reading
           label="HR"
           value={hr}
@@ -376,7 +366,7 @@ function MonitorPanel({ sim }: { sim: Sim }) {
         <Reading label="EtCO2" value={flags.has("capno") ? (v.etco2 ?? "---") : "—"} color="text-co2" />
       </div>
       {extras.length > 0 && (
-        <div dir="rtl" className="flex flex-wrap gap-x-3 gap-y-1 border-t border-line bg-panel px-3 py-2 text-xs text-ink/80">
+        <div dir="rtl" className="hidden flex-wrap gap-x-3 gap-y-1 border-t border-line bg-panel px-3 py-2 text-xs text-ink/80 md:flex">
           {extras.map((k) => (
             <span key={k}>
               {labels[k]}: {sim.measured[k]!.value ?? "—"}
@@ -390,12 +380,12 @@ function MonitorPanel({ sim }: { sim: Sim }) {
 
 function Reading({ label, value, color, unit, badge }: { label: string; value: string | number; color: string; unit?: string; badge?: React.ReactNode }) {
   return (
-    <div className="bg-black px-3 py-2">
-      <div className="flex items-center justify-between text-[10px] text-muted">
-        <span>{label}</span>
+    <div className="min-w-0 bg-black px-2 py-1 md:px-3 md:py-2">
+      <div className="flex items-center justify-between gap-1 text-[10px] text-muted">
+        <span className="truncate">{label}</span>
         {badge}
       </div>
-      <div className={`text-3xl font-bold leading-tight tabular-nums ${color}`}>
+      <div className={`text-xl font-bold leading-tight tabular-nums md:text-3xl ${color}`}>
         {value}
         {unit && value !== "—" && value !== "---" && <span className="ms-0.5 text-xs font-medium">{unit}</span>}
       </div>
@@ -440,7 +430,7 @@ function DiagnosisSection({ d }: { d: ReturnType<typeof debrief>["diagnosis"] })
 
 function DebriefView({ content, sim, onNew }: { content: Content; sim: Sim; onNew: () => void }) {
   const d = debrief(content, sim);
-  const pct = d.score.total ? Math.round((100 * d.score.done) / d.score.total) : 0;
+  const pct = d.score.pct;
   return (
     <section className="msg-in card space-y-5 p-5">
       <div className="flex flex-wrap items-center gap-5">
@@ -454,6 +444,11 @@ function DebriefView({ content, sim, onNew }: { content: Content; sim: Sim; onNe
             {d.score.done}/{d.score.total} פעולות לפי הפרוטוקול
             {d.score.criticalMissed > 0 && <span className="ms-2 font-semibold text-red-300">❌ {d.score.criticalMissed} פעולות קריטיות חסרות</span>}
           </p>
+          {d.score.penalty > 0 && (
+            <p className="text-sm text-red-300">
+              −{d.score.penalty} נקודות על {d.errors.length === 1 ? "טעות אחת" : `${d.errors.length} טעויות`} (10 לכל טעות)
+            </p>
+          )}
           {sim.saved === "saved" && <p className="text-xs text-muted">✓ נשמר בהיסטוריה שלך</p>}
         </div>
       </div>

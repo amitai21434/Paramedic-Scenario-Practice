@@ -29,14 +29,14 @@ export function ScoreRing({ value, size = 104 }: { value: number; size?: number 
 
 export type TrendPoint = { score: number; label: string; date: string };
 
-/** Score per finished scenario over time (oldest → newest), with a hover readout. */
+/** Score per finished scenario over time, read right to left (oldest on the right), with a hover readout. */
 export function ScoreTrend({ points }: { points: TrendPoint[] }) {
   const [hover, setHover] = useState<number | null>(null);
   if (points.length < 2) return null;
   const W = 600;
   const H = 160;
-  const pad = { l: 34, r: 12, t: 12, b: 20 };
-  const x = (i: number) => pad.l + (i / (points.length - 1)) * (W - pad.l - pad.r);
+  const pad = { l: 12, r: 38, t: 12, b: 20 };
+  const x = (i: number) => W - pad.r - (i / (points.length - 1)) * (W - pad.l - pad.r);
   const y = (v: number) => pad.t + (1 - v / 100) * (H - pad.t - pad.b);
   const d = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.score).toFixed(1)}`).join("");
   const h = hover !== null ? points[hover] : null;
@@ -52,14 +52,14 @@ export function ScoreTrend({ points }: { points: TrendPoint[] }) {
         onMouseMove={(e) => {
           const box = e.currentTarget.getBoundingClientRect();
           const px = ((e.clientX - box.left) / box.width) * W;
-          const i = Math.round(((px - pad.l) / (W - pad.l - pad.r)) * (points.length - 1));
+          const i = Math.round(((W - pad.r - px) / (W - pad.l - pad.r)) * (points.length - 1));
           setHover(Math.max(0, Math.min(points.length - 1, i)));
         }}
       >
         {[0, 50, 100].map((g) => (
           <g key={g}>
             <line x1={pad.l} x2={W - pad.r} y1={y(g)} y2={y(g)} stroke="var(--color-line)" strokeWidth="1" />
-            <text x={pad.l - 6} y={y(g)} textAnchor="end" dominantBaseline="central" fontSize="10" fill="var(--color-muted)">
+            <text x={W - pad.r + 6} y={y(g)} textAnchor="start" dominantBaseline="central" fontSize="10" fill="var(--color-muted)">
               {g}%
             </text>
           </g>

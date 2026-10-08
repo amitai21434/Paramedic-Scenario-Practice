@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { debrief } from "../debrief";
 import { rollComplication, startSim, step } from "../engine";
 import { finding } from "../physiology";
+import { generate } from "../generate";
 import type { Content, Sim } from "../types";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -128,5 +129,44 @@ describe.skipIf(!hasContent)("complications", () => {
     sim = run(sim, ["מלח 250 מל IV"]);
     expect(sim.comp!.resolvedAt).not.toBeNull();
     expect(items(sim).every((i) => i.doneAt !== null)).toBe(true);
+  });
+
+  it("a drug the patient is allergic to causes a reaction that IM adrenaline resolves", () => {
+    const t = content.cases.find((c) => c.id === "fracture")!;
+    let seed = 1;
+    while (generate(t, seed).allergyDrug !== "fentanyl") seed++;
+    let sim = run(startSim(content, "fracture", seed), ["פותח וריד", "פנטניל 60 מקג IV"]);
+    expect(sim.comp?.id).toBe("allergicReaction");
+    expect(finding(sim, "skin")).toMatch(/אורטיקריה/);
+    sim = run(sim, ["אדרנלין 0.5 מג לשריר", "חמצן", "לחץ דם"]);
+    expect(sim.comp!.resolvedAt).not.toBeNull();
+    expect(items(sim).every((i) => i.doneAt !== null)).toBe(true);
+    const d = debrief(content, sim);
+    expect(d.errors.some((e) => e.text.includes("אלרגית") || e.text.includes("אלרגי"))).toBe(true);
+    expect(d.errors.some((e) => e.text.includes("אדרנלין"))).toBe(false);
+  });
+
+  it("nothing reacts when the patient isn't allergic, and drugs get no ✔ confirmation", () => {
+    const t = content.cases.find((c) => c.id === "fracture")!;
+    let seed = 1;
+    while (generate(t, seed).allergyDrug) seed++;
+    const sim = run(startSim(content, "fracture", seed), ["פותח וריד", "פנטניל 60 מקג IV"]);
+    expect(sim.comp ?? null).toBeNull();
+    expect(sim.messages.some((m) => "text" in m && /✔|ניתן\./.test(m.text))).toBe(false);
+  });
+
+  it("errors take 10 points each off the score", () => {
+    const sim = run(startSim(content, "acs", 4, "chb"), ["מחבר מוניטור", "פותח וריד", "ניטרו 0.4 מג מתחת ללשון", "סיום"]);
+    const d = debrief(content, sim);
+    const base = Math.round((100 * d.score.done) / d.score.total);
+    expect(d.errors.length).toBeGreaterThan(0);
+    expect(d.score.pct).toBe(Math.max(0, base - 10 * d.errors.length));
+  });
+
+  it("nitro in the heart-block patient drops the blood pressure", () => {
+    let sim = run(startSim(content, "acs", 4, "chb"), ["מחבר מוניטור", "פותח וריד", "לחץ דם"]);
+    const before = sim.measured.sbp!.value!;
+    sim = run(sim, ["ניטרו 0.4 מג מתחת ללשון", "לחץ דם"]);
+    expect(sim.measured.sbp!.value!).toBeLessThan(before - 10);
   });
 });

@@ -39,8 +39,9 @@ describe("weak spots", () => {
     expect(s.missed[0]).toEqual({ label: "ונטולין", critical: false, missed: 1, of: 1 });
     expect(s.missed.find((m) => m.label === "מוניטור")).toMatchObject({ missed: 1, of: 3 });
     expect(s.errors).toEqual([{ text: "ניטרו: לחץ דם נמוך", count: 2 }]);
+    // Each cardio run had one error: 50% of steps − 10 points.
     expect(s.stations).toEqual([
-      { station: "קרדיו", avg: 50, runs: 2 },
+      { station: "קרדיו", avg: 40, runs: 2 },
       { station: "מצחים", avg: 50, runs: 1 },
     ]);
   });
