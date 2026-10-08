@@ -101,6 +101,15 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(sim.flags).toContain("o2");
   });
 
+  it("in a contamination case, removing wet clothes is decontamination, not warming", () => {
+    const sim = run(startSim(content, "organophosphate", 3), ["מסיר בגדים רטובים ושוטף את העור"]);
+    const text = (sim.messages.at(-1) as { text: string }).text;
+    expect(text).not.toMatch(/שמיכות/);
+    expect(sim.actions.filter((a) => a.action === "decon").length).toBe(1);
+    const cold = run(startSim(content, "hypothermia", 3), ["מסיר בגדים רטובים"]);
+    expect((cold.messages.at(-1) as { text: string }).text).toMatch(/שמיכות/);
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

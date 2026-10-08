@@ -194,6 +194,12 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // "בודק דימום" means the vaginal check only in a birth/pregnancy case; elsewhere it's a look for external bleeding.
   items = items.map((it) => (it.kind === "action" && it.id === "vaginal" && !vaginalCase(sim) && !/וגינ|נרתיק|פרינאום|תחבוש/.test(it.phrase) ? { ...it, id: "limbs" } : it));
 
+  // In a contamination case, wet clothes come off for decontamination, not warming.
+  if (JSON.stringify(sim.case.template).includes('"decon"')) {
+    items = items.map((it) => (it.kind === "action" && it.id === "warm" && it.phrase === "בגדים רטובים" ? { ...it, id: "decon" } : it));
+    items = items.filter((it, i) => !(it.kind === "action" && it.id === "decon" && items.findIndex((x) => x.kind === "action" && x.id === "decon") !== i));
+  }
+
   // Oxygen in the same message as the bag is for the bag: do the bag first, then connect it.
   if (items.some((it) => it.kind === "action" && it.id === "bvm")) {
     const o2 = items.filter((it) => it.kind === "action" && it.id === "o2").map((it) => ({ ...it, withBag: true }));
