@@ -169,4 +169,11 @@ describe.skipIf(!hasContent)("complications", () => {
     sim = run(sim, ["ניטרו 0.4 מג מתחת ללשון", "לחץ דם"]);
     expect(sim.measured.sbp!.value!).toBeLessThan(before - 10);
   });
+
+  it("a wrong dose is an error and does not tick the checklist step", () => {
+    const sim = run(startSim(content, "pedsVf", 7), ["מתחיל עיסויים", "מחבר מוניטור", "פותח IO", "אדרנלין 5 מג IO", "סיום"]);
+    const d = debrief(content, sim);
+    expect(d.errors.some((e) => e.text.includes("מינון שגוי"))).toBe(true);
+    expect(d.checklist.find((c) => c.label.startsWith("אדרנלין"))!.doneAt).toBeNull();
+  });
 });

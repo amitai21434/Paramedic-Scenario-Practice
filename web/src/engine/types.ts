@@ -320,6 +320,8 @@ export type DrugGiven = {
   unit: string | null;
   route: string | null;
   t: number;
+  /** Given at a wrong dose or by a wrong route — doesn't tick the checklist. */
+  wrong?: boolean;
 };
 
 export type ActionRecord = {

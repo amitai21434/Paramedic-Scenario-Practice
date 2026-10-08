@@ -352,7 +352,7 @@ function fire(sim: Sim, rule: Rule, out: Output) {
 
 function updateChecks(content: Content, sim: Sim) {
   sim.case.template.checklist.forEach((item, i) => {
-    if (sim.checks[i] === undefined && evalCond(content, sim, item.when)) sim.checks[i] = sim.t;
+    if (sim.checks[i] === undefined && evalCond(content, sim, item.when, true)) sim.checks[i] = sim.t;
   });
 }
 
@@ -368,10 +368,11 @@ function num(sim: Sim, n: Num | undefined, fallback: number): number {
   return v;
 }
 
-export function evalCond(content: Content, sim: Sim, c: Cond): boolean {
-  if ("all" in c) return c.all.every((x) => evalCond(content, sim, x));
-  if ("any" in c) return c.any.some((x) => evalCond(content, sim, x));
-  if ("not" in c) return !evalCond(content, sim, c.not);
+/** strict: drugs given at a wrong dose or by a wrong route don't count (used for the checklist). */
+export function evalCond(content: Content, sim: Sim, c: Cond, strict = false): boolean {
+  if ("all" in c) return c.all.every((x) => evalCond(content, sim, x, strict));
+  if ("any" in c) return c.any.some((x) => evalCond(content, sim, x, strict));
+  if ("not" in c) return !evalCond(content, sim, c.not, strict);
   if ("age" in c) return (c.age.lt === undefined || sim.case.age < c.age.lt) && (c.age.gt === undefined || sim.case.age > c.age.gt);
   if ("comp" in c) return sim.comp?.id === c.comp && (c.resolved === undefined || (sim.comp.resolvedAt !== null) === c.resolved);
   // Actions performed after the complication started (by position, so a same-second action before it doesn't count).
@@ -391,7 +392,9 @@ export function evalCond(content: Content, sim: Sim, c: Cond): boolean {
     return n >= num(sim, c.min, 1);
   }
   if ("drug" in c) {
-    const given = sim.actions.filter((a, i) => a.drug?.drug === c.drug && (!c.sinceState || a.t >= sim.stateSince) && (!c.sinceComp || afterComp(i)));
+    const given = sim.actions.filter(
+      (a, i) => a.drug?.drug === c.drug && !(strict && a.drug.wrong) && (!c.sinceState || a.t >= sim.stateSince) && (!c.sinceComp || afterComp(i)),
+    );
     if (c.min === undefined) return given.length > 0;
     return totalDose(content, sim, c.drug, given.map((a) => a.drug!)) >= num(sim, c.min, 0);
   }
@@ -540,16 +543,19 @@ function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiv
         [lo, hi] = [Math.min(lo * w, form.cap), Math.min(hi * w, form.cap)];
       }
       if (v < lo * 0.95 || v > hi * 1.05) {
+        g.wrong = true;
         feedback(sim, "error", `${shown}: מינון שגוי. לפי הפרוטוקול ${forms.map(describe).join(" או ")}${forms.some((f) => splitUnit(f.unit).perKg) ? ` (משקל ${sim.case.weight} ק"ג)` : ""}.`);
       }
     }
     if (rule.max != null && !splitUnit(rule.unit).perMin) {
       const total = [...prior, g].reduce((s, x) => s + inMainUnit(rule, rule.unit!, x, sim.case.weight), 0);
+      if (total > rule.max * 1.05) g.wrong = true;
       if (total > rule.max * 1.05) feedback(sim, "error", `${shown}: חריגה מהמינון המקסימלי (${rule.max} ${unitLabel(rule.unit)}).`);
     }
   }
   const routes = [...(rule?.routes ?? []), ...(rule?.alts ?? []).flatMap((a) => a.routes ?? [])];
   if (routes.length && g.route && !routes.includes(g.route)) {
+    g.wrong = true;
     feedback(sim, "error", `${shown}: דרך מתן שגויה (לפי הפרוטוקול: ${[...new Set(routes)].map((r) => ROUTE_LABELS[r] ?? r).join(" / ")}).`);
   }
 }
@@ -852,7 +858,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       record({ joules });
       if (pulse) feedback(sim, "error", "שוק לא מסונכרן למטופל עם דופק.");
       else if (!isShockable(def)) feedback(sim, "error", "שוק חשמלי בקצב שאינו בר־שוק.");
-      return say(`⚡ שוק ${joules}J ניתן.`);
+      return say(`⚡ שוק ${joules}J`);
     }
     case "sync": {
       if (!flags.has("monitor")) return say("מדבקות הדפיברילציה אינן מחוברות.");
