@@ -147,6 +147,13 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(sim.actions.some((a) => a.action === "airway")).toBe(true);
   });
 
+  it("drying an adult is warming, not the newborn manoeuvre", () => {
+    const sim = run(startSim(content, "deadSea", 3, "conscious"), ["מוריד בגדים רטובים, מייבש ומכסה בשמיכה"]);
+    const text = sim.messages.filter((m) => m.from === "examiner").map((m) => ("text" in m ? m.text : "")).join(" ");
+    expect(text).not.toMatch(/היילוד/);
+    expect(text.match(/בשמיכות/g)!.length).toBe(1);
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

@@ -194,6 +194,9 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // "בודק דימום" means the vaginal check only in a birth/pregnancy case; elsewhere it's a look for external bleeding.
   items = items.map((it) => (it.kind === "action" && it.id === "vaginal" && !vaginalCase(sim) && !/וגינ|נרתיק|פרינאום|תחבוש/.test(it.phrase) ? { ...it, id: "limbs" } : it));
 
+  // Drying and wrapping is the newborn manoeuvre only where there is a newborn; for anyone else it's warming.
+  if (!JSON.stringify(sim.case.template).includes('"dryBaby"')) items = items.map((it) => (it.kind === "action" && it.id === "dryBaby" ? { ...it, id: "warm" } : it));
+
   // The same action named twice in one message ("פותח נתיב אוויר, הטיית ראש") is done once.
   items = items.filter((it, i) => it.kind !== "action" || items.findIndex((x) => x.kind === "action" && x.id === it.id) === i);
 
