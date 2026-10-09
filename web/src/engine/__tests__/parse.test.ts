@@ -16,6 +16,8 @@ describe("parse", () => {
     expect(ids("חמצן ואחרי זה וריד")).toEqual(["o2", "iv"]);
     expect(notCarried("פיטוצין 10 יחידות IM")).toEqual(["פיטוצין (אוקסיטוצין)"]);
     expect(notCarried("מנתק משאבת אינסולין")).toEqual([]);
+    expect(parse("חמצן במשקפיים").items).toMatchObject([{ id: "o2", phrase: expect.stringContaining("משקפ") }]);
+    expect(ids("מחליף בלון חמצן")).toEqual(["o2"]);
   });
 
   it("reads several actions in one message", () => {
