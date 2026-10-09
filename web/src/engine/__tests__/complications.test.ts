@@ -125,6 +125,13 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(sim.flags).not.toContain("bvm");
   });
 
+  it("drowsy COPD patient: says her own complaint, and assisted bagging draws no warning", () => {
+    const sim = run(startSim(content, "copd", 3, "narcosis"), ["מה קרה?", "מנשים במפוח"]);
+    const said = sim.messages.filter((m) => m.from === "examiner").map((m) => ("text" in m ? m.text : ""));
+    expect(said.some((t) => t.startsWith("המטופל") && t.includes("לנשום"))).toBe(true);
+    expect(sim.feedback.some((f) => f.text.includes("הנשמה במפוח"))).toBe(false);
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

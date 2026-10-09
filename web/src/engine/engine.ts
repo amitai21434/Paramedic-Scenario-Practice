@@ -722,6 +722,12 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     // A confused patient talks, but the history comes from whoever is with them.
     if (def.confused && c.bystander && BYSTANDER_KEYS.includes(q)) return say(`${c.bystander}: "${answer(sim, q)}"`);
     if (canTalk(sim)) return say(`[[המטופל|המטופלת]]: "${answer(sim, q)}"`);
+    // A drowsy patient who still talks says a first-person complaint ("אני... לא... מצליחה לנשום") themselves;
+    // one written about them ("הוא נפל...") is the bystander's, like the rest of the history.
+    if (q === "complaint" && pulse && (v.gcs ?? 15) >= 9 && !flags.has("intubated")) {
+      const text = answer(sim, q);
+      if (!/(^|[s"])(הוא|היא|אותו|אותה)([s.,!?]|$)/.test(text)) return say(`[[המטופל|המטופלת]]: "${text}"`);
+    }
     if (c.bystander && BYSTANDER_KEYS.includes(q)) return say(`${c.bystander}: "${answer(sim, q)}"`);
     return say(pulse && (v.gcs ?? 15) >= 9 ? "[[המטופל|המטופלת]] [[מבולבל|מבולבלת]] ולא עונה לעניין." : "[[המטופל|המטופלת]] [[אינו מגיב|אינה מגיבה]] — אין מי שיענה.");
   }
@@ -837,7 +843,8 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say(`${actionDef(id).label} — בוצע.`);
     case "bvm":
       record();
-      if (pulse && (v.gcs ?? 15) >= 9) feedback(sim, "warn", "הנשמה במפוח למטופל בהכרה ונושם.");
+      // Only an alert patient who's breathing adequately; assisting a drowsy, hypoventilating one is right (03-06).
+      if (pulse && (v.gcs ?? 15) >= 13 && (v.rr ?? 16) >= 10) feedback(sim, "warn", "הנשמה במפוח למטופל בהכרה ונושם.");
       setFlag(sim, "bvm");
       // Newborns are ventilated with room air first (02-09) — don't claim oxygen unless it was said.
       return say(item.phrase.includes("חמצן") || flags.has("o2") ? "מנשימים במפוח עם חמצן." : "מנשימים במפוח.");
