@@ -121,6 +121,14 @@ export function finding(sim: Sim, key: FindingKey): string {
   if (comp !== undefined) return comp;
   const own = def.findings?.[key];
   if (own !== undefined) return resolve(own, sim.case);
+  // The neck exam and the neck-vein check describe the same veins: when the case sets only one, the other agrees.
+  if (key === "jvd" && def.findings?.neck !== undefined) {
+    const veins = resolve(def.findings.neck, sim.case).split(",").map((p) => p.trim()).find((p) => p.includes("ורידי"));
+    if (veins) return veins;
+  }
+  if (key === "neck" && def.findings?.jvd !== undefined) {
+    return `קנה במרכז, ${resolve(def.findings.jvd, sim.case)}, ללא רגישות`;
+  }
   return resolve(defaultFinding(key, vitals, pulse, new Set(sim.flags), sim.case.age), sim.case);
 }
 

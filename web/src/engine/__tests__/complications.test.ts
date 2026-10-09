@@ -154,6 +154,22 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(text.match(/בשמיכות/g)!.length).toBe(1);
   });
 
+  it("the neck exam and the neck-vein check agree", () => {
+    const sim = run(startSim(content, "chestTrauma", 3, "tension"), ["בדיקת קנה וורידי צוואר"]);
+    const text = (sim.messages.at(-1) as { text: string }).text;
+    expect(text).toMatch(/ורידי צוואר: גודש ורידי צוואר/);
+    expect(text).not.toMatch(/אין גודש/);
+    const rv = run(startSim(content, "acs", 3, "inferiorRv"), ["בדיקת צוואר"]);
+    expect((rv.messages.at(-1) as { text: string }).text).toMatch(/צוואר: קנה במרכז, גודש ורידי צוואר/);
+  });
+
+  it("checking for catastrophic bleeding reports where it is, or that there is none", () => {
+    const none = run(startSim(content, "chestTrauma", 3, "tension"), ["בודק דימומים פורצים"]);
+    expect((none.messages.at(-1) as { text: string }).text).toBe("אין דימום פורץ חיצוני.");
+    const limb = run(startSim(content, "hemorrhage", 3, "limb"), ["בודק דימומים פורצים"]);
+    expect((limb.messages.at(-1) as { text: string }).text).toMatch(/^גפיים: .*דימום/);
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

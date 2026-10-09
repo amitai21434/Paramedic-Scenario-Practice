@@ -192,7 +192,7 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   }
 
   // "בודק דימום" means the vaginal check only in a birth/pregnancy case; elsewhere it's a look for external bleeding.
-  items = items.map((it) => (it.kind === "action" && it.id === "vaginal" && !vaginalCase(sim) && !/וגינ|נרתיק|פרינאום|תחבוש/.test(it.phrase) ? { ...it, id: "limbs" } : it));
+  items = items.map((it) => (it.kind === "action" && it.id === "vaginal" && !vaginalCase(sim) && !/וגינ|נרתיק|פרינאום|תחבוש/.test(it.phrase) ? { ...it, id: "bleedCheck" } : it));
 
   // Drying and wrapping is the newborn manoeuvre only where there is a newborn; for anyone else it's warming.
   if (!JSON.stringify(sim.case.template).includes('"dryBaby"')) items = items.map((it) => (it.kind === "action" && it.id === "dryBaby" ? { ...it, id: "warm" } : it));
@@ -819,6 +819,14 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       // Oxygen said with the bag ("מנשים במפוח עם חמצן"), or while bagging, goes to the bag, not a mask.
       if (!/מסכ|משקפ|ריזרבואר|nrb|rebreather/.test(item.phrase) && (item.withBag || flags.has("bvm"))) return say("חמצן מחובר למפוח.");
       return say(item.phrase.includes("משקפ") ? "חמצן במשקפיים — מחובר." : "חמצן במסכה — מחובר.");
+    case "bleedCheck": {
+      record();
+      // A quick look over the body for external bleeding; finding it on a limb counts as looking at the limbs.
+      const where: [FindingKey, string][] = [["limbs", "גפיים"], ["head", "ראש ופנים"], ["neck", "צוואר"], ["chest", "בית החזה"], ["abdomen", "בטן"], ["pelvis", "אגן"], ["back", "גב"]];
+      const found = where.filter(([k]) => /דימום|מדמם|מדממת/.test(finding(sim, k)) && !/ללא דימום|אין דימום/.test(finding(sim, k)));
+      if (found.some(([k]) => k === "limbs")) sim.actions.push({ action: "limbs", t: sim.t, state: sim.state });
+      return say(found.length ? found.map(([k, l]) => `${l}: ${finding(sim, k)}`).join("\n") : "אין דימום פורץ חיצוני.");
+    }
     case "openAirway": {
       record();
       // Also counts as looking at the airway.
