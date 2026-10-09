@@ -110,6 +110,21 @@ describe.skipIf(!hasContent)("complications", () => {
     expect((cold.messages.at(-1) as { text: string }).text).toMatch(/שמיכות/);
   });
 
+  it("a weight-based dose rounded to something drawable is right (0.28 → 0.3 mg)", () => {
+    let seed = 1;
+    while (![27, 28, 29].includes(startSim(content, "pedsAnaphylaxis", seed, "refractory").case.weight)) seed++;
+    const sim = run(startSim(content, "pedsAnaphylaxis", seed, "refractory"), ["אדרנלין 0.3 מג לשריר", "סיום"]);
+    const d = debrief(content, sim);
+    expect(d.errors.some((e) => e.text.includes("מינון שגוי"))).toBe(false);
+    expect(d.checklist.find((c) => c.label.startsWith("אדרנלין"))!.doneAt).not.toBeNull();
+  });
+
+  it("'replacing the oxygen cylinder' is oxygen, not bagging", () => {
+    const sim = run(startSim(content, "pedsAnaphylaxis", 3, "refractory"), ["מחליף בלון חמצן"]);
+    expect(sim.flags).toContain("o2");
+    expect(sim.flags).not.toContain("bvm");
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

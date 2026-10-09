@@ -567,7 +567,10 @@ function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiv
         v *= w;
         [lo, hi] = [Math.min(lo * w, form.cap), Math.min(hi * w, form.cap)];
       }
-      if (v < lo * 0.95 || v > hi * 1.05) {
+      // Weight-based doses get ±10%: the weight is an estimate and doses are rounded to what can be drawn up
+      // (0.01 mg/kg × 28 kg = 0.28 → 0.3 mg is right). Fixed doses get ±5%.
+      const tol = splitUnit(form.unit).perKg ? 0.1 : 0.05;
+      if (v < lo * (1 - tol) || v > hi * (1 + tol)) {
         g.wrong = true;
         feedback(sim, "error", `${shown}: מינון שגוי. לפי הפרוטוקול ${forms.map(describe).join(" או ")}${forms.some((f) => splitUnit(f.unit).perKg) ? ` (משקל ${sim.case.weight} ק"ג)` : ""}.`);
       }
