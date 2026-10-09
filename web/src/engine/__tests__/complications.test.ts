@@ -132,6 +132,13 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(sim.feedback.some((f) => f.text.includes("הנשמה במפוח"))).toBe(false);
   });
 
+  it("lines written about the patient ('@') come from the bystander even when the patient can talk", () => {
+    const sim = run(startSim(content, "stroke", 3, "lvo"), ["מתי זה התחיל?", "מה קרה?"]);
+    const said = sim.messages.filter((m) => m.from === "examiner").map((m) => ("text" in m ? m.text : ""));
+    expect(said.some((t) => t.includes("ראיתי") && !t.startsWith("המטופל") && !t.includes("@"))).toBe(true);
+    expect(said.some((t) => t.startsWith("המטופל"))).toBe(true);
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);
