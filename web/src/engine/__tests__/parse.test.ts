@@ -20,6 +20,20 @@ describe("parse", () => {
     expect(ids("מחליף בלון חמצן")).toEqual(["o2"]);
     expect(ids("פותח נתיב אוויר בדחיקת לסת")).toEqual(["openAirway"]);
     expect(ids("הערכת נתיב אוויר")).toEqual(["airway"]);
+    expect(ids("שוטף את העיניים במים")).toEqual(["eyeWash"]);
+    expect(ids("בדיקת עיניים")).toEqual(["pupils"]);
+    expect(ids("מתי הוציאו אותו מהמים?")).toEqual(["askOnset"]);
+  });
+
+  it("a question only asks, looks or measures — never gives a drug or does a treatment", () => {
+    expect(ids("מתי נתתם ונטולין?")).toEqual(["askMeds"]);
+    expect(ids("מתי היתה הלידה הקודמת?")).toEqual(["askOnset"]);
+    expect(ids("מתי אכלת לאחרונה?")).toEqual(["askLastMeal"]);
+    expect(ids("לקחת ויאגרה?")).toEqual(["askPde5"]);
+    expect(ids("יש דופק?")).toEqual(["pulse"]);
+    expect(ids("מה הקצב?")).toEqual(["rhythmCheck"]);
+    expect(ids("יש לך אלרגיות? פותח וריד")).toEqual(["askAllergies", "iv"]);
+    expect(ids("אספירין, 300 מג")).toEqual(["aspirin:300mg"]);
     expect(ids("חמצן במשקפיים 2 ליטר, מטרה סטורציה 88-92")).toEqual(["o2", "spo2"]);
   });
 

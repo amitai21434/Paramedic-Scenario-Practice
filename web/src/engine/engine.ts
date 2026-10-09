@@ -996,6 +996,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "pushCordBack":
     case "pullBaby":
     case "faceSpace":
+    case "eyeWash":
     case "reassure":
     case "restrain":
     case "consultDoc":

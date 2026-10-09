@@ -4,7 +4,7 @@
 // lexicon. Drugs are matched first and take the dose/unit/route words that
 // follow them, so "אדרנלין 1 מג IV" doesn't also read as "open an IV".
 
-import { ACTIONS, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
+import { ACTIONS, ASK_OR_EXAM, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
 
 export type ParsedItem =
   | { kind: "action"; id: string; joules?: number; phrase: string; withBag?: boolean }
@@ -222,8 +222,54 @@ export function parse(text: string): Parsed {
   // Split on punctuation, but not inside numbers ("0.4", "0,5").
   const clauses = text.split(/[;\n]+|[.,](?!\d)/).map((c) => c.trim()).filter(Boolean);
   const statements = clauses.filter(isStatement);
-  const rest = clauses.filter((c) => !isStatement(c)).join(", ");
-  return { ...parseItems(rest), statements };
+  // Questions ("מתי נתתם ונטולין?") are parsed on their own and only ask, look or measure; the other
+  // clauses are read together, so a dose in the next clause still belongs to its drug.
+  const out: Omit<Parsed, "statements"> = { items: [], negated: [], bare: null };
+  let buffer: string[] = [];
+  const flush = () => {
+    if (!buffer.length) return;
+    const r = parseItems(buffer.join(", "));
+    out.items.push(...r.items);
+    out.negated.push(...r.negated);
+    out.bare ??= r.bare;
+    buffer = [];
+  };
+  for (const c of clauses.filter((c) => !isStatement(c))) {
+    if (!isQuestion(c)) {
+      buffer.push(c);
+      continue;
+    }
+    flush();
+    const r = parseItems(c);
+    out.items.push(...questionItems(r.items));
+    out.negated.push(...r.negated);
+  }
+  flush();
+  return { ...out, statements };
+}
+
+const QUESTION_WORDS = ["מתי", "ממתי", "האם", "כמה", "איזה", "איזו", "אילו", "למה", "מדוע", "באיזה", "באיזו"];
+
+/** A clause asking something: ends with "?" or starts with a question word. */
+function isQuestion(clause: string): boolean {
+  if (/[?؟]\s*$/.test(clause)) return true;
+  const first = tokenize(clause)[0];
+  return first !== undefined && QUESTION_WORDS.includes(first);
+}
+
+/** A question never gives a drug or does a treatment; naming a drug in one asks about medications. */
+function questionItems(items: ParsedItem[]): ParsedItem[] {
+  let kept = items.filter((it) => it.kind === "action" && ASK_OR_EXAM.has(it.id));
+  const askedDrug = items.some((it) => it.kind === "drug");
+  const bareWhen = (it: ParsedItem) => it.kind === "action" && it.id === "askOnset" && it.phrase === "מתי";
+  if (askedDrug && !kept.some((it) => it.kind === "action" && it.id.startsWith("ask") && !bareWhen(it))) {
+    kept.push({ kind: "action", id: "askMeds", phrase: "" });
+  }
+  // A bare "מתי" is only the onset question when nothing more specific was asked ("מתי אכלת לאחרונה?").
+  if (kept.some((it) => it.kind === "action" && it.id !== "askOnset" && it.id.startsWith("ask"))) {
+    kept = kept.filter((it) => !bareWhen(it));
+  }
+  return kept;
 }
 
 function parseItems(text: string): Omit<Parsed, "statements"> {
