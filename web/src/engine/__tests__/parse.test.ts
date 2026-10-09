@@ -34,6 +34,8 @@ describe("parse", () => {
     expect(ids("מה הקצב?")).toEqual(["rhythmCheck"]);
     expect(ids("יש לך אלרגיות? פותח וריד")).toEqual(["askAllergies", "iv"]);
     expect(ids("אספירין, 300 מג")).toEqual(["aspirin:300mg"]);
+    expect(ids("ניקור חזה במחט בצד שמאל")).toEqual(["needle"]);
+    expect(ids("משכיבה על צד שמאל")).toEqual(["positionSide"]);
     expect(ids("חמצן במשקפיים 2 ליטר, מטרה סטורציה 88-92")).toEqual(["o2", "spo2"]);
   });
 
