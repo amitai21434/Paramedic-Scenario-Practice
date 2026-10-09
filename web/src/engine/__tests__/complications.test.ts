@@ -139,6 +139,14 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(said.some((t) => t.startsWith("המטופל"))).toBe(true);
   });
 
+  it("opening the airway is a manoeuvre that also shows what's in it, done once per message", () => {
+    const sim = run(startSim(content, "pedsDrowning", 3, "pulse"), ["פותח נתיב אוויר, הטיית ראש"]);
+    const text = (sim.messages.at(-1) as { text: string }).text;
+    expect(text).toMatch(/^נתיב האוויר נפתח בהטיית ראש/);
+    expect(text.match(/נפתח/g)!.length).toBe(1);
+    expect(sim.actions.some((a) => a.action === "airway")).toBe(true);
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

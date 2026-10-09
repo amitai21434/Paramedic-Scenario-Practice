@@ -194,6 +194,9 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // "בודק דימום" means the vaginal check only in a birth/pregnancy case; elsewhere it's a look for external bleeding.
   items = items.map((it) => (it.kind === "action" && it.id === "vaginal" && !vaginalCase(sim) && !/וגינ|נרתיק|פרינאום|תחבוש/.test(it.phrase) ? { ...it, id: "limbs" } : it));
 
+  // The same action named twice in one message ("פותח נתיב אוויר, הטיית ראש") is done once.
+  items = items.filter((it, i) => it.kind !== "action" || items.findIndex((x) => x.kind === "action" && x.id === it.id) === i);
+
   // In a contamination case, wet clothes come off for decontamination, not warming.
   if (JSON.stringify(sim.case.template).includes('"decon"')) {
     items = items.map((it) => (it.kind === "action" && it.id === "warm" && it.phrase === "בגדים רטובים" ? { ...it, id: "decon" } : it));
@@ -813,6 +816,14 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       // Oxygen said with the bag ("מנשים במפוח עם חמצן"), or while bagging, goes to the bag, not a mask.
       if (!/מסכ|משקפ|ריזרבואר|nrb|rebreather/.test(item.phrase) && (item.withBag || flags.has("bvm"))) return say("חמצן מחובר למפוח.");
       return say(item.phrase.includes("משקפ") ? "חמצן במשקפיים — מחובר." : "חמצן במסכה — מחובר.");
+    case "openAirway": {
+      record();
+      // Also counts as looking at the airway.
+      sim.actions.push({ action: "airway", t: sim.t, state: sim.state });
+      const how = /לסת|jaw/.test(item.phrase) ? "בדחיקת לסת" : "בהטיית ראש והרמת סנטר";
+      return say(`נתיב האוויר נפתח ${how}.
+נתיב אוויר: ${finding(sim, "airway")}`);
+    }
     case "o2Stop":
       record();
       setFlag(sim, "o2", false);
