@@ -205,6 +205,20 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // Drying and wrapping is the newborn manoeuvre only where there is a newborn; for anyone else it's warming.
   if (!JSON.stringify(sim.case.template).includes('"dryBaby"')) items = items.map((it) => (it.kind === "action" && it.id === "dryBaby" ? { ...it, id: "warm" } : it));
 
+  // "גלוקוז 10% 250 מל" is 25 g: with a stated strength the volume is checked as grams.
+  items = items.map((it) => (it.kind === "drug" && it.conc && it.unit === "ml" && it.value !== null ? { ...it, value: Math.round(it.value * it.conc * 100) / 100, unit: "g" } : it));
+  // "...תן סולומדרול, מבקשת לפתוח וריד": the line is opened before the drugs that need it.
+  const lines = items.filter((it) => it.kind === "action" && (it.id === "iv" || it.id === "io"));
+  if (lines.length && items.some((it) => it.kind === "drug")) items = [...lines, ...items.filter((it) => !lines.includes(it))];
+  // "חוזרת על האינהלציה": the last inhaled drugs again, same doses.
+  if (/(חוזר|חוזרת|חוזרים)\s+על\s+ה?(אינהלציה|אינהלציות|נבולייזר)|(עוד|שוב)\s+(אינהלציה|נבולייזר)|אינהלציה\s+(נוספת|חוזרת)/.test(text) && !items.some((it) => it.kind === "drug" && it.route === "neb")) {
+    const nebs = sim.actions.filter((a) => a.drug && a.drug.route === "neb");
+    const lastT = nebs.at(-1)?.t;
+    for (const a of nebs.filter((a) => a.t === lastT)) {
+      items.push({ kind: "drug", drug: a.drug!.drug, value: a.drug!.value, unit: a.drug!.unit, route: "neb", phrase: "" });
+    }
+  }
+
   // "משכיבה אותה על הצד" is the side position, not lying flat as well.
   if (items.some((it) => it.kind === "action" && it.id === "positionSide")) items = items.filter((it) => !(it.kind === "action" && it.id === "positionSupine"));
 
@@ -1032,6 +1046,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "pushCordBack":
     case "pullBaby":
     case "faceSpace":
+    case "protect":
     case "eyeWash":
     case "reassure":
     case "restrain":

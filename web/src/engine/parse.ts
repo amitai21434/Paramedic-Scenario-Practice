@@ -8,7 +8,7 @@ import { ACTIONS, ASK_OR_EXAM, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, R
 
 export type ParsedItem =
   | { kind: "action"; id: string; joules?: number; phrase: string; withBag?: boolean }
-  | { kind: "drug"; drug: string; value: number | null; unit: string | null; route: string | null; phrase: string };
+  | { kind: "drug"; drug: string; value: number | null; unit: string | null; route: string | null; phrase: string; conc?: number };
 
 export type Parsed = {
   items: ParsedItem[];
@@ -82,7 +82,7 @@ function distance(a: string, b: string, max: number): number {
 }
 
 // Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
-const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת"].map(normalize));
+const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת", "ריאות", "לריאות", "מוצץ", "מוצצת", "מציצה", "מגיב", "מגיבה"].map(normalize));
 
 /** 0 = exact, 1 = typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
@@ -244,15 +244,30 @@ export function notCarried(text: string): string[] {
 
 /** "מדווחת על בת 50 לאחר SVT, הפך עם אדנוזין": after a report verb and "על", the rest is the report's
  *  content — recorded like a diagnosis, not acted on. */
-const REPORT = /(^|[\s,])(ו?(?:מדווח|מדווחת|מדוויח|מדוויחה|מדווחים|לדווח|מעדכן|מעדכנת))\s+(?:(?:ל|את)\S*\s+){0,2}על\s+/;
+const REPORT = /(^|[\s,])(ו?(?:מדווח|מדווחת|מדוויח|מדוויחה|מדווחים|לדווח|מעדכן|מעדכנת))\s+(?:\S+\s+){0,3}?(?:על\s+|(?=ש[א-ת]{2,}))/;
+/** "...ומפנה מהר" at the end of a report is the next order, not part of the report. */
+const REPORT_TAIL = /(?:,\s*(?:לא\s*,?\s*)?((?:ו)?(?:אני\s+)?(?:מפנה|מפנים|מתחיל|מתחילה|מעמיס|מעמיסה|מעמיסים|נוסעים|ממשיך|ממשיכה)(?:\s.*)?)|\s(ו(?:אני\s+)?(?:מפנה|מפנים|מתחיל|מתחילה|מעמיס|מעמיסה|מעמיסים|נוסעים|ממשיך|ממשיכה)(?:\s.*)?))$/;
 
 export function parse(text: string): Parsed {
   const report = REPORT.exec(text);
   if (report) {
     const cut = report.index + report[0].length;
-    const head = parse(text.slice(0, cut - "על ".length));
-    const content = text.slice(cut).trim();
-    return { ...head, statements: content ? [...head.statements, content] : head.statements };
+    const head = parseClauses(text.slice(0, cut).replace(/\s+על\s*$/, ""));
+    let content = text.slice(cut).trim();
+    const tail = REPORT_TAIL.exec(content);
+    const after = tail ? parseClauses(tail[1] ?? tail[2]) : null;
+    if (tail) content = content.slice(0, tail.index).trim();
+    const statements = [...head.statements, ...(content ? [content] : []), ...(after?.statements ?? [])];
+    if (!after) return { ...head, statements };
+    return {
+      items: [...head.items, ...after.items],
+      negated: [...head.negated, ...after.negated],
+      prepared: [...head.prepared, ...after.prepared],
+      planned: [...head.planned, ...after.planned],
+      flush: head.flush || after.flush,
+      bare: head.bare ?? after.bare,
+      statements,
+    };
   }
   return parseClauses(text);
 }
@@ -404,6 +419,7 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       // The next action starts here ("אדנוזין ואק"ג 12" — the 12 isn't a dose).
       if (bestAt(tokens, used, j, ACTION_PHRASES)?.cost === 0) break;
     }
+    if (unit?.startsWith("/")) unit = (DRUGS.find((d) => d.id === m.phrase.key)?.unit ?? "") + unit;
     // "300 מג אספירין": quantity written before the drug.
     if (value === null) {
       for (let j = Math.max(0, m.start - 4); j < m.start; j++) {
@@ -478,6 +494,9 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     }
   }
 
+  // "גלוקוז 10% 250 מל": the stated strength turns the volume into grams (tokenize drops the "%").
+  const pct = /(\d+(?:\.\d+)?)\s*%/.exec(text);
+  if (pct) for (const f of found) if (f.item.kind === "drug" && f.item.drug === "dextrose") f.item.conc = Number(pct[1]) / 100;
   found.sort((a, b) => a.pos - b.pos);
   // "הנשמה במפוח" names one action twice.
   const items = found
