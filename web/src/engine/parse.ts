@@ -82,15 +82,31 @@ function distance(a: string, b: string, max: number): number {
 }
 
 // Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
-const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת", "ריאות", "לריאות", "מוצץ", "מוצצת", "מציצה", "מגיב", "מגיבה"].map(normalize));
+const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת", "ריאות", "לריאות", "מוצץ", "מוצצת", "מציצה", "מגיב", "מגיבה", "אוושה", "אוושות", "אקמול", "ימניים", "ימנים", "עיניים", "עינים"].map(normalize));
 
-/** 0 = exact, 1 = typo, -1 = no match. */
+/** 0 = exact, 0.5 = sound-alike letter swap, 1 = other typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
   const vs = variants(input);
   if (vs.includes(word)) return 0;
-  if (/^\d/.test(word) || word.length < 5 || NO_TYPO.has(word)) return -1;
+  if (/^\d/.test(word) || NO_TYPO.has(word)) return -1;
+  // A sound-alike letter swap ("שליין", "דיווכ", "משקיבה") is the likeliest typo; short words ("סלין",
+  // "דיוח" after normalizing) accept only that.
+  if (word.length >= 4 && vs.some((v) => soundAlike(v, word))) return 0.5;
+  if (word.length < 5) return -1;
   const max = word.length >= 9 ? 2 : 1;
   return vs.some((v) => v.length >= 4 && distance(v, word, max) <= max) ? 1 : -1;
+}
+
+/** Letters that are easy to swap when typing by sound. */
+const SOUND_ALIKE = new Set(["סש", "שס", "כח", "חכ", "כק", "קכ", "טת", "תט", "אע", "עא"]);
+function soundAlike(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === b[i]) continue;
+    if (++diff > 1 || !SOUND_ALIKE.has(a[i] + b[i])) return false;
+  }
+  return diff === 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,10 +115,28 @@ function tokenMatch(input: string, word: string): number {
 
 type Phrase = { key: string; tokens: string[]; text: string };
 
+/** Masculine present verbs → feminine, so "מקבע אגן" also reads "מקבעת אגן" without listing both. */
+const FEMININE: Record<string, string> = {
+  פותח: "פותחת", נותן: "נותנת", מחבר: "מחברת", בודק: "בודקת", מודד: "מודדת", מושיב: "מושיבה", משכיב: "משכיבה",
+  מנשים: "מנשימה", מתחיל: "מתחילה", מקבע: "מקבעת", שואל: "שואלת", מכניס: "מכניסה", מוריד: "מורידה", מרים: "מרימה",
+  מזמין: "מזמינה", מבצע: "מבצעת", מקשיב: "מקשיבה", מחמם: "מחממת", מייבש: "מייבשת", שוטף: "שוטפת", מוסיף: "מוסיפה",
+  ממשיך: "ממשיכה", חוזר: "חוזרת", מסיר: "מסירה", מתקשר: "מתקשרת", מודיע: "מודיעה", מדווח: "מדווחת", מצמיד: "מצמידה",
+  מחדיר: "מחדירה", מזריק: "מזריקה", מאזין: "מאזינה", מעביר: "מעבירה", מפעיל: "מפעילה", מרגיע: "מרגיעה", מטפל: "מטפלת",
+  מפסיק: "מפסיקה", מנקז: "מנקזת", מלביש: "מלבישה", מהדק: "מהדקת", לוחץ: "לוחצת", עוטף: "עוטפת", חותך: "חותכת",
+  מוציא: "מוציאה", מחזיר: "מחזירה", מושך: "מושכת", תומך: "תומכת", מנטר: "מנטרת", מעמיס: "מעמיסה", מרחיק: "מרחיקה",
+  מכין: "מכינה", מצנן: "מצננת", מקרר: "מקררת", מכסה: "מכסה", מעסה: "מעסה", מפנה: "מפנה", שם: "שמה", סופר: "סופרת",
+  מעריך: "מעריכה", מסתכל: "מסתכלת", מגן: "מגינה", קושר: "קושרת", מאבטח: "מאבטחת", מייצב: "מייצבת", מזיז: "מזיזה",
+};
+
 function compile(entries: { id: string; words: string[] }[]): Phrase[] {
-  return entries.flatMap((e) =>
-    e.words.map((w) => ({ key: e.id, tokens: tokenize(w), text: w })).filter((p) => p.tokens.length > 0),
-  );
+  return entries.flatMap((e) => {
+    const words = e.words.flatMap((w) => {
+      const [first, ...rest] = w.split(" ");
+      const fem = FEMININE[first];
+      return fem && !e.words.includes([fem, ...rest].join(" ")) ? [w, [fem, ...rest].join(" ")] : [w];
+    });
+    return words.map((w) => ({ key: e.id, tokens: tokenize(w), text: w })).filter((p) => p.tokens.length > 0);
+  });
 }
 
 const ACTION_PHRASES = compile(ACTIONS);
@@ -147,34 +181,37 @@ function bestAt(tokens: string[], used: boolean[], i: number, phrases: Phrase[],
 
 const isNumber = (t: string) => /^\d+(\.\d+)?$/.test(t);
 
+/** Words that carry a negation on to the treatment after them: "לא נותנת ניטרו", "אין צורך באינטובציה". */
+const NEGATED_VERBS = ["נותן", "נותנת", "לתת", "נותנים", "מבצע", "מבצעת", "לבצע", "עושה", "עושים", "לעשות", "צורך", "צריך", "צריכה",
+  "מחבר", "מחברת", "לחבר", "פותח", "פותחת", "לפתוח", "מתחיל", "מתחילה", "להתחיל", "ממשיך", "ממשיכה", "להמשיך", "מזריק", "מזריקה", "להזריק"].map(normalize);
+
 function negatedBefore(tokens: string[], start: number): boolean {
-  for (let k = Math.max(0, start - 2); k < start; k++) {
-    if (NEGATION_TOKENS.includes(tokens[k])) return true;
-  }
-  return false;
+  if (start >= 1 && NEGATION_TOKENS.includes(tokens[start - 1])) return true;
+  // Two words back only through a verb: "לא נותנת ניטרו" — not "המצב לא משתפר, אדרנלין".
+  return start >= 2 && NEGATION_TOKENS.includes(tokens[start - 2]) && variants(tokens[start - 1]).some((v) => NEGATED_VERBS.includes(v));
 }
 
 /** "ROSC לאחר החייאה", "מאז השוק": describes what already happened, not an order.
  *  "אחרי" counts only before a definite noun ("אחרי השוק", "אחרי הניטרו"); "אחרי זה" sequences the next order. */
-const AFTER_TOKENS = ["לאחר", "מאז", "post"];
+const AFTER_TOKENS = ["לאחר", "מאז", "post"].map(normalize);
 const describedBefore = (tokens: string[], start: number) =>
   start > 0 && (AFTER_TOKENS.includes(tokens[start - 1]) || (tokens[start - 1] === "אחרי" && tokens[start].startsWith("ה")));
 
 /** "מוציאה ציוד הנשמה למקרה הצורך", "מכין אטרופין": getting something ready isn't doing it — unless the
  *  same message also gives it ("מכינה אדנוזין ונותנת בפוש"). */
-const PREPARE_TOKENS = ["מכין", "מכינה", "להכין", "מכינים", "מוציא", "מוציאה", "להוציא", "מוציאים", "פורק", "פורקת", "לפרוק", "פורקים", "מארגן", "מארגנת", "לארגן", "ציוד", "מוכן", "מוכנה", "בהיכון", "להביא", "מביא", "מביאה", "מביאים", "תביא"];
-const GIVE_TOKENS = ["נותן", "נותנת", "לתת", "נותנים", "מזריק", "מזריקה", "להזריק", "מבצע", "מבצעת", "לבצע", "משתמש", "משתמשת", "להשתמש"];
+const PREPARE_TOKENS = ["מכין", "מכינה", "להכין", "מכינים", "מוציא", "מוציאה", "להוציא", "מוציאים", "פורק", "פורקת", "לפרוק", "פורקים", "מארגן", "מארגנת", "לארגן", "ציוד", "מוכן", "מוכנה", "בהיכון", "להביא", "מביא", "מביאה", "מביאים", "תביא"].map(normalize);
+const GIVE_TOKENS = ["נותן", "נותנת", "לתת", "נותנים", "מזריק", "מזריקה", "להזריק", "מבצע", "מבצעת", "לבצע", "משתמש", "משתמשת", "להשתמש"].map(normalize);
 const preparedBefore = (tokens: string[], start: number, end: number) =>
   [start - 1, start - 2].some((k) => k >= 0 && variants(tokens[k]).some((v) => PREPARE_TOKENS.includes(v))) &&
   !tokens.slice(end).some((t) => variants(t).some((v) => GIVE_TOKENS.includes(v)));
 
 /** "שוטפת עם סליין", "20 שטיפה": flushing the line, not a bolus. */
-const FLUSH_TOKENS = ["שוטף", "שוטפת", "שטיפה", "לשטוף", "שוטפים", "פלאש", "flush"];
+const FLUSH_TOKENS = ["שוטף", "שוטפת", "שטיפה", "לשטוף", "שוטפים", "פלאש", "flush"].map(normalize);
 const flushedBefore = (tokens: string[], start: number) =>
   [start - 1, start - 2].some((k) => k >= 0 && variants(tokens[k]).some((v) => FLUSH_TOKENS.includes(v)));
 
 /** "תמרון ולסלבה לא עבד": something that already failed is being talked about, not ordered again. */
-const FAILED_TOKENS = ["עבד", "עבדה", "עזר", "עזרה", "הצליח", "הצליחה", "השפיע", "השפיעה", "עוזר", "עוזרת"];
+const FAILED_TOKENS = ["עבד", "עבדה", "עזר", "עזרה", "הצליח", "הצליחה", "השפיע", "השפיעה", "עוזר", "עוזרת"].map(normalize);
 const failedAfter = (tokens: string[], end: number) =>
   tokens.slice(end, end + 3).some((t, k, a) => variants(t).includes("לא") && a[k + 1] !== undefined && FAILED_TOKENS.includes(a[k + 1]));
 
@@ -220,14 +257,19 @@ export function mentions(text: string, phrase: string): boolean {
   return false;
 }
 
-function isStatement(clause: string): boolean {
-  const tokens = tokenize(clause);
-  return TRIGGER_TOKENS.some((want) => {
-    for (let i = 0; i + want.length <= tokens.length; i++) {
-      if (want.every((w, k) => variants(tokens[i + k]).includes(w))) return true;
+/** Where a diagnosis starts in the clause (its trigger word), or -1. */
+function statementStart(clause: string): number {
+  const words = clause.split(/\s+/);
+  let pos = 0;
+  for (let j = 0; j < words.length; j++) {
+    const rest = words.slice(j).join(" ");
+    const tokens = tokenize(rest);
+    if (tokens.length && TRIGGER_TOKENS.some((want) => want.every((w, k) => tokens[k] !== undefined && variants(tokens[k]).includes(w)))) {
+      return clause.indexOf(words[j], pos);
     }
-    return false;
-  });
+    pos = clause.indexOf(words[j], pos) + words[j].length;
+  }
+  return -1;
 }
 
 /** Labels of drugs named in the text that aren't in the formulary (exact names only). */
@@ -245,16 +287,20 @@ export function notCarried(text: string): string[] {
 /** "מדווחת על בת 50 לאחר SVT, הפך עם אדנוזין": after a report verb and "על", the rest is the report's
  *  content — recorded like a diagnosis, not acted on. */
 const REPORT = /(^|[\s,])(ו?(?:מדווח|מדווחת|מדוויח|מדוויחה|מדווחים|לדווח|מעדכן|מעדכנת))\s+(?:\S+\s+){0,3}?(?:על\s+|(?=ש[א-ת]{2,}))/;
+/** "..., ומטחילה פינוי": a report's last comma-clause that mentions transport (even misspelled) is an order. */
+const REPORT_TRANSPORT = /,\s*((?:ו)?[^,]*(?:פינוי|מפנה|מפנים|נוסעים|מעמיס|לאמבולנס)[^,]*)$/;
 /** "...ומפנה מהר" at the end of a report is the next order, not part of the report. */
 const REPORT_TAIL = /(?:,\s*(?:לא\s*,?\s*)?((?:ו)?(?:אני\s+)?(?:מפנה|מפנים|מתחיל|מתחילה|מעמיס|מעמיסה|מעמיסים|נוסעים|ממשיך|ממשיכה)(?:\s.*)?)|\s(ו(?:אני\s+)?(?:מפנה|מפנים|מתחיל|מתחילה|מעמיס|מעמיסה|מעמיסים|נוסעים|ממשיך|ממשיכה)(?:\s.*)?))$/;
 
 export function parse(text: string): Parsed {
+  // "אחרי זה החייאה" sequences the next order ("זה" is dropped as filler, which would leave "אחרי החייאה").
+  text = text.replace(/(^|\s)ו?אחרי\s+זה(?=\s|,|$)/g, "$1ואז");
   const report = REPORT.exec(text);
   if (report) {
     const cut = report.index + report[0].length;
     const head = parseClauses(text.slice(0, cut).replace(/\s+על\s*$/, ""));
     let content = text.slice(cut).trim();
-    const tail = REPORT_TAIL.exec(content);
+    const tail = REPORT_TAIL.exec(content) ?? REPORT_TRANSPORT.exec(content);
     const after = tail ? parseClauses(tail[1] ?? tail[2]) : null;
     if (tail) content = content.slice(0, tail.index).trim();
     const statements = [...head.statements, ...(content ? [content] : []), ...(after?.statements ?? [])];
@@ -275,8 +321,19 @@ export function parse(text: string): Parsed {
 function parseClauses(text: string): Parsed {
   // Diagnosis clauses are split off first, so "חושדת בבצקת ריאות" isn't read as "check for edema".
   // Split on punctuation, but not inside numbers ("0.4", "0,5").
-  const clauses = text.split(/[;\n]+|[.,](?!\d)/).map((c) => c.trim()).filter(Boolean);
-  const statements = clauses.filter(isStatement);
+  // "?" ends a clause too, and stays with it ("מה קרה? פותחת וריד").
+  const raw = text.split(/[;\n]+|[.,](?!\d)|(?<=\?)/).map((c) => c.trim()).filter(Boolean);
+  // A diagnosis starts at its trigger; what comes before it ("מוניטור, ואז הקצב הוא סינוס") is still an order.
+  const clauses: string[] = [];
+  const statements: string[] = [];
+  for (const c of raw) {
+    const at = statementStart(c);
+    if (at < 0) clauses.push(c);
+    else {
+      if (c.slice(0, at).trim()) clauses.push(c.slice(0, at).trim());
+      statements.push(c.slice(at).trim());
+    }
+  }
   // Questions ("מתי נתתם ונטולין?") are parsed on their own and only ask, look or measure; the other
   // clauses are read together, so a dose in the next clause still belongs to its drug.
   const out: Omit<Parsed, "statements"> = { items: [], negated: [], bare: null, prepared: [], planned: [], flush: false };
@@ -291,47 +348,89 @@ function parseClauses(text: string): Parsed {
     out.bare ??= r.bare;
     buffer = [];
   };
-  for (const clause of clauses.filter((c) => !isStatement(c))) {
-    // From "אם" / "לפני ש" / "למקרה ש" to the end of the clause is a plan: look and ask, but don't treat.
+  const ask = (seg: string, strict: boolean) => {
+    flush();
+    const r = parseItems(seg);
+    out.items.push(...questionItems(r.items, !strict));
+    out.negated.push(...r.negated);
+  };
+  const handle = (clause: string) => {
+    // A plan — from "אם" / "לפני ש" / "למקרה ש" to the next "ואני / ועכשיו / ואז" — looks and asks but doesn't treat.
     const h = HYPOTHETICAL.exec(clause);
-    const c = h ? clause.slice(0, h.index).trim() : clause;
-    if (c) {
-      if (!isQuestion(c)) buffer.push(c);
-      else {
-        flush();
-        const r = parseItems(c);
-        out.items.push(...questionItems(r.items));
-        out.negated.push(...r.negated);
-      }
-    }
     if (h) {
+      const tail = clause.slice(h.index + 1);
+      const end = PLAN_END.exec(tail);
+      const stop = end ? h.index + 1 + end.index : clause.length;
+      if (clause.slice(0, h.index).trim()) handle(clause.slice(0, h.index).trim());
       flush();
-      const r = parseItems(clause.slice(h.index));
+      const r = parseItems(clause.slice(h.index, stop));
       out.items.push(...r.items.filter((it) => it.kind === "action" && ASK_OR_EXAM.has(it.id)));
       out.planned.push(...r.items.filter((it) => !(it.kind === "action" && ASK_OR_EXAM.has(it.id))).map((it) => (it.kind === "drug" ? it.drug : it.id)));
       out.negated.push(...r.negated);
+      if (clause.slice(stop).trim()) handle(clause.slice(stop).trim());
+      return;
     }
-  }
+    if (!isQuestion(clause)) {
+      buffer.push(clause);
+      return;
+    }
+    // A question and an order in one clause ("איך אתה מרגיש וחמצן", "זופרן 4 מג וכמה כואב עכשיו?"):
+    // only the asking part is a question. "מתי נתתם ונטולין?" only asks; "חמצן, ויש אלרגיות?" still gives the oxygen.
+    const segs = splitOnAnd(clause);
+    segs.forEach((seg, i) => {
+      if (startsWithQuestionWord(seg)) ask(seg, true);
+      else if (i === segs.length - 1 && /[?؟]\s*$/.test(seg)) ask(seg, false);
+      else buffer.push(seg);
+    });
+  };
+  for (const clause of clauses) handle(clause);
   flush();
+  // Across clauses too: "יש דופק? אני בודקת דופק" is one pulse check (decompressions and shocks can repeat).
+  out.items = out.items.filter((it, k, all) => it.kind === "drug" || REPEATABLE.includes(it.id) || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k);
   return { ...out, statements };
 }
+
+/** Actions that are really done twice when named twice ("ניקור חזה, וניקור בצד השני"). */
+const REPEATABLE = ["needle", "shock", "sync"];
 
 /** Where a plan starts: "אם"/"ואם" (if), "לפני ש..." (before I...), "למקרה ש"/"במקרה ש" (in case). Not "שואלת אם" (whether). */
 const HYPOTHETICAL = /(?:^|\s)(?<!(?:שואל|שואלת|לשאול|בודק|בודקת|לבדוק)\s)(?:ו?אם|ו?לפני\s+ש\S*|ו?(?:ל|ב)מקרה\s+ש\S*)(?=\s|$)/;
 
-const QUESTION_WORDS = ["מתי", "ממתי", "האם", "כמה", "איזה", "איזו", "אילו", "למה", "מדוע", "באיזה", "באיזו", "מה", "איך", "איפה", "היכן"];
+/** Where a plan ends: the next order ("...אני שמה חגורת אגן ואני מדווחת"). */
+const PLAN_END = /\s+(?:ואני|ועכשיו|ואז|ואחרי)(?=\s)/;
+
+/** Words whose first "ו" is part of the word, not "and" (ונטולין, וריד, ויאגרה, ולסלבה — typos included). */
+const VAV_TOKENS = [...new Set([...ACTION_PHRASES, ...DRUG_PHRASES].flatMap((p) => p.tokens).filter((t) => t.startsWith("ו")))];
+
+/** Splits a clause before each "ו…" that means "and". */
+function splitOnAnd(clause: string): string[] {
+  const words = clause.split(/\s+/);
+  const segs: string[][] = [[]];
+  for (const w of words) {
+    const t = tokenize(w)[0];
+    const isAnd = segs.at(-1)!.length > 0 && t !== undefined && t.startsWith("ו") && t.length > 2 && !VAV_TOKENS.some((lt) => lt === t || tokenMatch(t, lt) > 0);
+    if (isAnd) segs.push([]);
+    segs.at(-1)!.push(w);
+  }
+  return segs.map((x) => x.join(" ")).filter(Boolean);
+}
+
+const QUESTION_WORDS = ["מתי", "ממתי", "האם", "כמה", "איזה", "איזו", "אילו", "למה", "מדוע", "באיזה", "באיזו", "מה", "איך", "איפה", "היכן"].map(normalize);
 
 /** A clause asking something: ends with "?" or starts with a question word. */
 function isQuestion(clause: string): boolean {
-  if (/[?؟]\s*$/.test(clause)) return true;
+  return /[?؟]\s*$/.test(clause) || startsWithQuestionWord(clause);
+}
+
+function startsWithQuestionWord(clause: string): boolean {
   const first = tokenize(clause)[0];
   // "ומה המרחק לבית החולים" — with a prefix letter too.
   return first !== undefined && (QUESTION_WORDS.includes(first) || (first.startsWith("ו") && QUESTION_WORDS.includes(first.slice(1))));
 }
 
 /** A question never gives a drug or does a treatment; naming a drug in one asks about medications. */
-function questionItems(items: ParsedItem[]): ParsedItem[] {
-  let kept = items.filter((it) => it.kind === "action" && ASK_OR_EXAM.has(it.id));
+function questionItems(items: ParsedItem[], keepActions = false): ParsedItem[] {
+  let kept = items.filter((it) => it.kind === "action" && (keepActions || ASK_OR_EXAM.has(it.id)));
   const askedDrug = items.some((it) => it.kind === "drug");
   const bareWhen = (it: ParsedItem) => it.kind === "action" && it.id === "askOnset" && it.phrase === "מתי";
   if (askedDrug && !kept.some((it) => it.kind === "action" && it.id.startsWith("ask") && !bareWhen(it))) {
@@ -503,6 +602,6 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     .map((f) => f.item)
     // "נוטל תרופות לאין־אונות?" is the PDE5 question, not the medication list ("לוקחת תרופות" still is).
     .filter((it, _k, all) => !(it.kind === "action" && it.id === "askMeds" && it.phrase === "תרופות" && all.some((o) => o.kind === "action" && (o.id === "askPde5" || o.id === "askAllergies"))))
-    .filter((it, k, all) => it.kind === "drug" || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k);
+    .filter((it, k, all) => it.kind === "drug" || REPEATABLE.includes(it.id) || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k);
   return { items, bare, negated, prepared, planned: [], flush };
 }

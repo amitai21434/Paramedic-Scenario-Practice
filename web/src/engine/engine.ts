@@ -222,8 +222,10 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // "משכיבה אותה על הצד" is the side position, not lying flat as well.
   if (items.some((it) => it.kind === "action" && it.id === "positionSide")) items = items.filter((it) => !(it.kind === "action" && it.id === "positionSupine"));
 
-  // The same action named twice in one message ("פותח נתיב אוויר, הטיית ראש") is done once.
-  items = items.filter((it, i) => it.kind !== "action" || items.findIndex((x) => x.kind === "action" && x.id === it.id) === i);
+  // The same action named twice in one message ("פותח נתיב אוויר, הטיית ראש") is done once —
+  // except ones that are really done twice ("ניקור חזה, וניקור בצד השני", two shocks).
+  const REPEATABLE = ["needle", "shock", "sync"];
+  items = items.filter((it, i) => it.kind !== "action" || REPEATABLE.includes(it.id) || items.findIndex((x) => x.kind === "action" && x.id === it.id) === i);
 
   // In a contamination case, wet clothes come off for decontamination, not warming.
   if (JSON.stringify(sim.case.template).includes('"decon"')) {
@@ -930,7 +932,10 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "cpr":
       record();
       // Children: compressions are right for a pulse under 60 with poor perfusion (02-05).
-      if (pulse && !(c.age < 16 && (v.hr ?? 100) < 60)) {
+      // Straight after a shock, compressions resume without a pulse check (protocol) — it's only wrong
+      // once the student has found the pulse, or the patient is plainly awake.
+      const knowsPulse = (v.gcs ?? 15) >= 9 || sim.actions.some((a) => ["pulse", "rhythmCheck", "consciousness"].includes(a.action) && a.state === sim.state && a.t >= sim.stateSince);
+      if (pulse && knowsPulse && !(c.age < 16 && (v.hr ?? 100) < 60)) {
         feedback(sim, "error", "עיסויים למטופל עם דופק.");
         return say("[[למטופל|למטופלת]] יש דופק.");
       }
