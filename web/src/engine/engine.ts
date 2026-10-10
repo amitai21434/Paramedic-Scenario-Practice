@@ -176,7 +176,10 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // Drugs that aren't carried are named honestly, and the rest of the message still runs.
   const missing = notCarried(text);
   for (const label of missing) out.text(`${label} — לא נמצא בתיק התרופות לפי הפרוטוקול.`);
-  if (!items.length && missing.length) {
+  // Equipment got out or a drug drawn up, not used yet.
+  const ready = [...new Set(parsed.prepared)].map((k) => DRUGS.find((d) => d.id === k)?.name ?? actionDef(k).label);
+  if (ready.length) out.text(`🧰 מוכן לשימוש: ${ready.join(", ")}.`);
+  if (!items.length && (missing.length || ready.length)) {
     out.flush(sim, t0);
     return { sim, understood: true };
   }
@@ -826,6 +829,12 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       const found = where.filter(([k]) => /דימום|מדמם|מדממת/.test(finding(sim, k)) && !/ללא דימום|אין דימום/.test(finding(sim, k)));
       if (found.some(([k]) => k === "limbs")) sim.actions.push({ action: "limbs", t: sim.t, state: sim.state });
       return say(found.length ? found.map(([k, l]) => `${l}: ${finding(sim, k)}`).join("\n") : "אין דימום פורץ חיצוני.");
+    }
+    case "askHospital": {
+      record();
+      // Fixed per run, so asking twice gives the same answer.
+      const min = 10 + (c.seed % 21);
+      return say(`בית החולים הקרוב — כ־${min} דקות נסיעה.`);
     }
     case "openAirway": {
       record();

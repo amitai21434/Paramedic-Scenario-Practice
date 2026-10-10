@@ -93,7 +93,7 @@ describe("statements", () => {
   it("doesn't mistake similar words for actions", () => {
     expect(ids("מקשיב לריאות")).toEqual(["lungs"]);
     expect(ids("ליטר בדקה חמצן")).toEqual(["o2"]);
-    expect(ids("מדווח לחדר מיון")).toEqual([]);
+    expect(ids("מדווח לחדר מיון")).toEqual(["prealert"]);
     expect(ids("בולוס 500")).toEqual([]);
   });
   it("reads newly added vocabulary", () => {

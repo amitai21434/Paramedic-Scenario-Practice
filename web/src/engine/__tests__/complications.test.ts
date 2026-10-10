@@ -170,6 +170,36 @@ describe.skipIf(!hasContent)("complications", () => {
     expect((limb.messages.at(-1) as { text: string }).text).toMatch(/^גפיים: .*דימום/);
   });
 
+  it("replay of the first real test run (stable SVT): her words do what she meant", () => {
+    let sim = startSim(content, "tachy", 1883765148, "psvtStable"); // without her IV-lost twist: this checks the words
+    const said = (s: Sim) => s.messages.filter((m) => m.from === "examiner").map((m) => ("text" in m ? m.text : "")).join(" | ");
+    sim = run(sim, ["אני בודקת בטיחות, ומה המרחק פינוי לבית חולים"]);
+    expect(sim.actions.some((a) => a.action === "transport")).toBe(false); // asked about the distance, didn't leave
+    expect(said(sim)).toMatch(/בית החולים הקרוב/);
+    sim = run(sim, [
+      "אני מבקשת מהאיש צוות לחבר מוניטור סטורציה ולחץ דם, ואקג ואני שאולת מה קרה היום? למה היא הזמינה אותנו",
+      "אני רוצה לדעת על מחלות ברקע ולבקש מהאיש צוות לפתוח וריד",
+      "יש לה אלרגיה לתרופות או היא לוקחת תרופות באופן כבוע",
+      "אני רוצה לעשות גירוי וגעלי ולפני לפרוק ציוד הנשמה",
+    ]);
+    expect(sim.flags).not.toContain("bvm"); // only got the bag ready
+    expect(said(sim)).toMatch(/מוכן לשימוש: הנשמה במפוח/);
+    const vagalBefore = sim.actions.filter((a) => a.action === "vagal").length;
+    sim = run(sim, [
+      "אני עושה עוד גישה ורידית ובודקת שזה במקום, מה המדדים אחרי הגירוי וגאצי",
+      "בגלל שתמרון ולסיבה לא עבד אני רוצה להשתמש באדנוזין, אני מחינה 6 מג 2 מל ו20 שטיפה, ובודקת תפאות נגד לפני שאני נותנת בפוש מהר ומרימה היד שלה",
+    ]);
+    expect(sim.actions.filter((a) => a.action === "vagal").length).toBe(vagalBefore); // not repeated
+    expect(sim.actions.some((a) => a.action === "decon" || a.action === "dryBaby" || a.action === "warm")).toBe(false); // "שטיפה" is the flush
+    expect(sim.actions.some((a) => a.drug?.drug === "adenosine")).toBe(true);
+    sim = run(sim, ["אחרי אני בודקת כל המדדים עוד פעם, ומתחילה פינוי"]);
+    expect(sim.actions.some((a) => a.action === "transport")).toBe(true);
+    sim = run(sim, ["אני עושה עוד אקג בפינוי, ומדוויח על בת 50 לאחר הפרעת קצב SVT, הפך עם אדנוזין, כרגע יציבה הימודינמית"]);
+    expect(sim.actions.some((a) => a.action === "prealert")).toBe(true);
+    expect(said(sim)).not.toMatch(/באיזה מינון/);
+    expect(sim.feedback.some((f) => f.text.includes("הנשמה במפוח"))).toBe(false);
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);
