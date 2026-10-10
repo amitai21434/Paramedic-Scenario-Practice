@@ -200,6 +200,20 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(sim.feedback.some((f) => f.text.includes("הנשמה במפוח"))).toBe(false);
   });
 
+  it("tester style: plans are noted not done, flushes keep the line, parents give a child's weight", () => {
+    const last = (s: Sim) => (s.messages.at(-1) as { text: string }).text;
+    let sim = run(startSim(content, "loc", 3, "hypo"), ["אני בודקת סוכר, אם נמוך אני אתן גלוקוז"]);
+    expect(last(sim)).toContain("נרשם כתוכנית (לא בוצע): דקסטרוז");
+    expect(sim.actions.some((a) => a.drug?.drug === "dextrose")).toBe(false);
+    sim = run(sim, ["אני פותחת וריד ושוטפת עם סליין"]);
+    expect(last(sim)).toMatch(/הקו נשטף ועובד/);
+    expect(sim.actions.some((a) => a.drug?.drug === "saline")).toBe(false);
+    const kid = run(startSim(content, "pedsAnaphylaxis", 3, "refractory"), ["אני שואלת את האמא כמה היא שוקלת"]);
+    expect(last(kid)).toMatch(/^(אמו|אמה): "(הוא שוקל|היא שוקלת) בערך \d+ ק"ג/);
+    const side = run(startSim(content, "loc", 3, "hypo"), ["אני משכיבה אותה על הצד"]);
+    expect(side.actions.some((a) => a.action === "positionSupine")).toBe(false);
+  });
+
   it("late steps count half", () => {
     expect(stepCredit([{ done: true, late: false }, { done: true, late: true }, { done: false, late: false }])).toBe(1.5);
     expect(scorePct(1.5, 2, 0)).toBe(75);

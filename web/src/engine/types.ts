@@ -53,6 +53,8 @@ export type FindingKey =
   | "burns";
 
 export type AnswerKey =
+  | "pregnant"
+  | "weight"
   | "complaint"
   | "onset"
   | "pain"

@@ -176,10 +176,15 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // Drugs that aren't carried are named honestly, and the rest of the message still runs.
   const missing = notCarried(text);
   for (const label of missing) out.text(`${label} — לא נמצא בתיק התרופות לפי הפרוטוקול.`);
+  // A plan ("אם נמוך אתן גלוקוז") is noted, not done; a flush keeps the line open.
+  const plannedLabels = [...new Set(parsed.planned)].map((k) => DRUGS.find((d) => d.id === k)?.name ?? actionDef(k).label);
+  if (plannedLabels.length) out.text(`📝 נרשם כתוכנית (לא בוצע): ${plannedLabels.join(", ")}.`);
+  const lineOpening = items.some((it) => it.kind === "action" && (it.id === "iv" || it.id === "io"));
+  if (parsed.flush) out.text(lineOpening || sim.flags.includes("iv") || sim.flags.includes("io") ? "הקו נשטף ועובד." : "אין גישה ורידית לשטוף.");
   // Equipment got out or a drug drawn up, not used yet.
   const ready = [...new Set(parsed.prepared)].map((k) => DRUGS.find((d) => d.id === k)?.name ?? actionDef(k).label);
   if (ready.length) out.text(`🧰 מוכן לשימוש: ${ready.join(", ")}.`);
-  if (!items.length && (missing.length || ready.length)) {
+  if (!items.length && (missing.length || ready.length || plannedLabels.length || parsed.flush)) {
     out.flush(sim, t0);
     return { sim, understood: true };
   }
@@ -199,6 +204,9 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
 
   // Drying and wrapping is the newborn manoeuvre only where there is a newborn; for anyone else it's warming.
   if (!JSON.stringify(sim.case.template).includes('"dryBaby"')) items = items.map((it) => (it.kind === "action" && it.id === "dryBaby" ? { ...it, id: "warm" } : it));
+
+  // "משכיבה אותה על הצד" is the side position, not lying flat as well.
+  if (items.some((it) => it.kind === "action" && it.id === "positionSide")) items = items.filter((it) => !(it.kind === "action" && it.id === "positionSupine"));
 
   // The same action named twice in one message ("פותח נתיב אוויר, הטיית ראש") is done once.
   items = items.filter((it, i) => it.kind !== "action" || items.findIndex((x) => x.kind === "action" && x.id === it.id) === i);
@@ -638,9 +646,11 @@ const QUESTIONS: Partial<Record<string, AnswerKey>> = {
   askPde5: "pde5",
   askPrevious: "previous",
   askSymptoms: "symptoms",
+  askPregnant: "pregnant",
+  askWeight: "weight",
 };
 /** What a bystander can answer for an unresponsive patient. */
-const BYSTANDER_KEYS: AnswerKey[] = ["complaint", "onset", "history", "meds", "allergies", "events", "previous", "pde5", "lastMeal"];
+const BYSTANDER_KEYS: AnswerKey[] = ["pregnant", "weight", "complaint", "onset", "history", "meds", "allergies", "events", "previous", "pde5", "lastMeal"];
 
 function answer(sim: Sim, key: AnswerKey): string {
   const c = sim.case;
@@ -664,6 +674,12 @@ function answer(sim: Sim, key: AnswerKey): string {
       return "לא, רק מה שאמרתי.";
     case "events":
       return "לא עשיתי שום דבר מיוחד.";
+    case "pregnant":
+      if (c.sex !== "f" || c.age < 12 || c.age > 55) return "לא.";
+      return t.id === "obstetric" ? "כן." : "לא, אני לא בהריון.";
+    case "weight":
+      // A child's weight comes from the parent; an adult knows their own.
+      return c.age < 14 ? `@[[הוא|היא]] [[שוקל|שוקלת]] בערך ${c.weight} ק"ג.` : `בערך ${c.weight} ק"ג.`;
     default:
       return "לא יודע[[|ת]].";
   }

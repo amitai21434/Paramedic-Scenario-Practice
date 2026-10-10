@@ -19,6 +19,10 @@ export type Parsed = {
   negated: string[];
   /** Actions or drugs only got ready ("מוציאה ציוד הנשמה", "מכינה אדנוזין") — not done. */
   prepared: string[];
+  /** Treatments only planned ("אם נמוך אתן גלוקוז", "לפני שאני נותנת ניטרו...") — not done. */
+  planned: string[];
+  /** The IV line was flushed ("שוטפת עם סליין") — not a fluid bolus. */
+  flush: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -78,7 +82,7 @@ function distance(a: string, b: string, max: number): number {
 }
 
 // Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
-const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה"].map(normalize));
+const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת"].map(normalize));
 
 /** 0 = exact, 1 = typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
@@ -151,17 +155,23 @@ function negatedBefore(tokens: string[], start: number): boolean {
 }
 
 /** "ROSC לאחר החייאה", "מאז השוק": describes what already happened, not an order.
- *  (Colloquial "אחרי (זה)" is left alone: it usually sequences the next order.) */
+ *  "אחרי" counts only before a definite noun ("אחרי השוק", "אחרי הניטרו"); "אחרי זה" sequences the next order. */
 const AFTER_TOKENS = ["לאחר", "מאז", "post"];
-const describedBefore = (tokens: string[], start: number) => start > 0 && AFTER_TOKENS.includes(tokens[start - 1]);
+const describedBefore = (tokens: string[], start: number) =>
+  start > 0 && (AFTER_TOKENS.includes(tokens[start - 1]) || (tokens[start - 1] === "אחרי" && tokens[start].startsWith("ה")));
 
 /** "מוציאה ציוד הנשמה למקרה הצורך", "מכין אטרופין": getting something ready isn't doing it — unless the
  *  same message also gives it ("מכינה אדנוזין ונותנת בפוש"). */
-const PREPARE_TOKENS = ["מכין", "מכינה", "להכין", "מכינים", "מוציא", "מוציאה", "להוציא", "מוציאים", "פורק", "פורקת", "לפרוק", "פורקים", "מארגן", "מארגנת", "לארגן", "ציוד", "מוכן", "מוכנה", "בהיכון"];
+const PREPARE_TOKENS = ["מכין", "מכינה", "להכין", "מכינים", "מוציא", "מוציאה", "להוציא", "מוציאים", "פורק", "פורקת", "לפרוק", "פורקים", "מארגן", "מארגנת", "לארגן", "ציוד", "מוכן", "מוכנה", "בהיכון", "להביא", "מביא", "מביאה", "מביאים", "תביא"];
 const GIVE_TOKENS = ["נותן", "נותנת", "לתת", "נותנים", "מזריק", "מזריקה", "להזריק", "מבצע", "מבצעת", "לבצע", "משתמש", "משתמשת", "להשתמש"];
 const preparedBefore = (tokens: string[], start: number, end: number) =>
   [start - 1, start - 2].some((k) => k >= 0 && variants(tokens[k]).some((v) => PREPARE_TOKENS.includes(v))) &&
   !tokens.slice(end).some((t) => variants(t).some((v) => GIVE_TOKENS.includes(v)));
+
+/** "שוטפת עם סליין", "20 שטיפה": flushing the line, not a bolus. */
+const FLUSH_TOKENS = ["שוטף", "שוטפת", "שטיפה", "לשטוף", "שוטפים", "פלאש", "flush"];
+const flushedBefore = (tokens: string[], start: number) =>
+  [start - 1, start - 2].some((k) => k >= 0 && variants(tokens[k]).some((v) => FLUSH_TOKENS.includes(v)));
 
 /** "תמרון ולסלבה לא עבד": something that already failed is being talked about, not ordered again. */
 const FAILED_TOKENS = ["עבד", "עבדה", "עזר", "עזרה", "הצליח", "הצליחה", "השפיע", "השפיעה", "עוזר", "עוזרת"];
@@ -254,7 +264,7 @@ function parseClauses(text: string): Parsed {
   const statements = clauses.filter(isStatement);
   // Questions ("מתי נתתם ונטולין?") are parsed on their own and only ask, look or measure; the other
   // clauses are read together, so a dose in the next clause still belongs to its drug.
-  const out: Omit<Parsed, "statements"> = { items: [], negated: [], bare: null, prepared: [] };
+  const out: Omit<Parsed, "statements"> = { items: [], negated: [], bare: null, prepared: [], planned: [], flush: false };
   let buffer: string[] = [];
   const flush = () => {
     if (!buffer.length) return;
@@ -262,22 +272,37 @@ function parseClauses(text: string): Parsed {
     out.items.push(...r.items);
     out.negated.push(...r.negated);
     out.prepared.push(...r.prepared);
+    out.flush ||= r.flush;
     out.bare ??= r.bare;
     buffer = [];
   };
-  for (const c of clauses.filter((c) => !isStatement(c))) {
-    if (!isQuestion(c)) {
-      buffer.push(c);
-      continue;
+  for (const clause of clauses.filter((c) => !isStatement(c))) {
+    // From "אם" / "לפני ש" / "למקרה ש" to the end of the clause is a plan: look and ask, but don't treat.
+    const h = HYPOTHETICAL.exec(clause);
+    const c = h ? clause.slice(0, h.index).trim() : clause;
+    if (c) {
+      if (!isQuestion(c)) buffer.push(c);
+      else {
+        flush();
+        const r = parseItems(c);
+        out.items.push(...questionItems(r.items));
+        out.negated.push(...r.negated);
+      }
     }
-    flush();
-    const r = parseItems(c);
-    out.items.push(...questionItems(r.items));
-    out.negated.push(...r.negated);
+    if (h) {
+      flush();
+      const r = parseItems(clause.slice(h.index));
+      out.items.push(...r.items.filter((it) => it.kind === "action" && ASK_OR_EXAM.has(it.id)));
+      out.planned.push(...r.items.filter((it) => !(it.kind === "action" && ASK_OR_EXAM.has(it.id))).map((it) => (it.kind === "drug" ? it.drug : it.id)));
+      out.negated.push(...r.negated);
+    }
   }
   flush();
   return { ...out, statements };
 }
+
+/** Where a plan starts: "אם"/"ואם" (if), "לפני ש..." (before I...), "למקרה ש"/"במקרה ש" (in case). Not "שואלת אם" (whether). */
+const HYPOTHETICAL = /(?:^|\s)(?<!(?:שואל|שואלת|לשאול|בודק|בודקת|לבדוק)\s)(?:ו?אם|ו?לפני\s+ש\S*|ו?(?:ל|ב)מקרה\s+ש\S*)(?=\s|$)/;
 
 const QUESTION_WORDS = ["מתי", "ממתי", "האם", "כמה", "איזה", "איזו", "אילו", "למה", "מדוע", "באיזה", "באיזו", "מה", "איך", "איפה", "היכן"];
 
@@ -310,6 +335,7 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
   const found: { pos: number; item: ParsedItem }[] = [];
   const negated: string[] = [];
   const prepared: string[] = [];
+  let flush = false;
   const mark = (a: number, b: number) => {
     for (let k = a; k < b; k++) used[k] = true;
   };
@@ -335,11 +361,16 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       i = m.end - 1;
       continue;
     }
+    if (m.phrase.key === "saline" && flushedBefore(tokens, m.start)) {
+      flush = true;
+      i = m.end - 1;
+      continue;
+    }
     let value: number | null = null;
     let unit: string | null = null;
     let route: string | null = null;
     // Look ahead a few tokens, stopping at the next drug.
-    for (let j = m.end; j < Math.min(tokens.length, m.end + 6); j++) {
+    for (let j = m.end; j < Math.min(tokens.length, m.end + 8); j++) {
       if (used[j]) continue;
       if (bestAt(tokens, used, j, DRUG_PHRASES)?.cost === 0) break;
       if (value === null) {
@@ -349,6 +380,14 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
           unit = q.unit;
           mark(j, q.end);
           j = q.end - 1;
+          // "0.01 לקילו זה 0.2 מג": the worked-out dose that follows the per-kg figure is what's given.
+          const next = !q.unit || q.unit.startsWith("/") ? readQuantity(tokens, used, q.end) : null;
+          if (next?.unit && !next.unit.startsWith("/")) {
+            value = next.value;
+            unit = next.unit;
+            mark(q.end, next.end);
+            j = next.end - 1;
+          }
           continue;
         }
       }
@@ -443,8 +482,8 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
   // "הנשמה במפוח" names one action twice.
   const items = found
     .map((f) => f.item)
-    // "נוטל תרופות לאין־אונות?" is the PDE5 question, not the medication list.
-    .filter((it, _k, all) => !(it.kind === "action" && it.id === "askMeds" && all.some((o) => o.kind === "action" && (o.id === "askPde5" || o.id === "askAllergies"))))
+    // "נוטל תרופות לאין־אונות?" is the PDE5 question, not the medication list ("לוקחת תרופות" still is).
+    .filter((it, _k, all) => !(it.kind === "action" && it.id === "askMeds" && it.phrase === "תרופות" && all.some((o) => o.kind === "action" && (o.id === "askPde5" || o.id === "askAllergies"))))
     .filter((it, k, all) => it.kind === "drug" || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k);
-  return { items, bare, negated, prepared };
+  return { items, bare, negated, prepared, planned: [], flush };
 }
