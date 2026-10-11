@@ -280,6 +280,8 @@ export type ComplicationDef = {
 export type Content = {
   cases: CaseTemplate[];
   complications?: Record<string, ComplicationDef>;
+  /** "Why it matters" per checklist label, shown under a missed or late step in the debrief. */
+  why?: Record<string, string>;
   /** Generic drug rules (contraindications etc.); a case's own rules are merged over these. */
   drugs: Record<string, DrugRule>;
   /** Protocol id → title, for the debrief. */

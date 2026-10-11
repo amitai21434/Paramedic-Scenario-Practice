@@ -418,12 +418,21 @@ function DebriefView({ content, sim, onNew }: { content: Content; sim: Sim; onNe
           {d.checklist.map((c, i) => (
             <li key={i} className="flex gap-2">
               <span aria-hidden>{c.doneAt === null ? (c.critical ? "❌" : "⬜") : c.late ? "⚠️" : "✅"}</span>
-              <span className={c.doneAt === null && c.critical ? "font-semibold text-red-300" : c.doneAt === null ? "text-muted" : ""}>
-                {c.label}
-                {c.doneAt !== null && (
-                  <span className="ms-1 font-mono text-xs text-muted">
-                    ({clock(c.doneAt)}
-                    {c.late ? " — באיחור" : ""})
+              <span>
+                <span className={c.doneAt === null && c.critical ? "font-semibold text-red-300" : c.doneAt === null ? "text-muted" : ""}>
+                  {c.label}
+                  {c.doneAt !== null && (
+                    <span className="ms-1 font-mono text-xs text-muted">
+                      ({clock(c.doneAt)}
+                      {c.late ? " — באיחור" : ""})
+                    </span>
+                  )}
+                </span>
+                {/* Why it matters — only where something was missed or late. */}
+                {c.why && (c.doneAt === null || c.late) && (
+                  <span className="mt-0.5 block text-xs leading-relaxed text-muted">
+                    {c.why}
+                    {c.ref && <span className="font-mono"> · {c.ref}</span>}
                   </span>
                 )}
               </span>

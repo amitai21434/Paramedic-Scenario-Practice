@@ -12,7 +12,8 @@ export type Debrief = {
   title: string;
   patient: string;
   outcome: string;
-  checklist: { label: string; critical: boolean; doneAt: number | null; late: boolean }[];
+  /** why: "why it matters" (shown under a missed or late step); ref: the protocol it comes from. */
+  checklist: { label: string; critical: boolean; doneAt: number | null; late: boolean; why?: string; ref?: string }[];
   errors: { t: number; text: string }[];
   warnings: { t: number; text: string }[];
   noFlow: number;
@@ -31,6 +32,17 @@ export type Debrief = {
   /** The vitals chart: what the monitor showed, and the drugs and procedures that may have moved it. */
   vitals: VitalsChartData;
 };
+
+/** The protocol a step comes from: resuscitation steps cite the storyline's arrest protocol (after-ROSC
+ *  steps 02-04), the rest its own protocol — the first that isn't the general approach (01-02, 05-01). */
+function stepProtocol(label: string, ids: string[]): string | undefined {
+  const arrest = ids.filter((p) => p.startsWith("02-"));
+  if (arrest.length && /ROSC/.test(label)) return arrest.find((p) => p === "02-04") ?? arrest[0];
+  if (arrest.length && /עיסויים|דפיברילציה|שוק חשמלי|שוק ראשון|שוק שני|VF|PEA|אדרנלין 1 mg|אמיודרון 300|אמיודרון 5 mg|גישה ורידית \/ תוך־גרמית|גישה תוך־גרמית/.test(label)) {
+    return arrest.find((p) => p !== "02-01" && p !== "02-04") ?? arrest[0];
+  }
+  return ids.find((p) => p !== "01-02" && p !== "05-01") ?? ids[0];
+}
 
 export type VitalsChartData = { trend: TrendPoint[]; events: { t: number; label: string }[]; end: number };
 
@@ -89,6 +101,8 @@ export function debrief(content: Content, sim: Sim): Debrief {
       critical: !!item.critical,
       doneAt,
       late: doneAt !== null && item.by !== undefined && doneAt > item.by,
+      why: content.why?.[item.label] ? g(content.why[item.label]) : undefined,
+      ref: stepProtocol(item.label, c.protocols),
     }));
   // Deduplicate repeated identical feedback (e.g. three wrong doses of the same kind).
   const uniq = (kind: "error" | "warn") =>
