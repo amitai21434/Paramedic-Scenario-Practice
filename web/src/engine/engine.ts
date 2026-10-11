@@ -18,6 +18,7 @@ import type {
   Num,
   Rule,
   Sim,
+  TrendPoint,
   Text,
   VitalKey,
   Vitals,
@@ -261,6 +262,7 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // A team works in parallel: a turn takes about as long as its longest task.
   if (!sim.ended) advance(content, sim, longest + 5 * (expanded.length - 1), out);
   if (sim.comp && sim.comp.resolvedAt === null) sim.comp.turns = (sim.comp.turns ?? 0) + 1;
+  logTrend(sim, t0);
   out.flush(sim, t0);
   return { sim, understood: true };
 }
@@ -698,6 +700,24 @@ function answer(sim: Sim, key: AnswerKey): string {
       return c.age < 14 ? `@[[הוא|היא]] [[שוקל|שוקלת]] בערך ${c.weight} ק"ג.` : `בערך ${c.weight} ק"ג.`;
     default:
       return "לא יודע[[|ת]].";
+  }
+}
+
+/** Logs what the monitor showed this turn: live HR (monitor on, no CPR) and SpO2 (probe on), and any BP taken. */
+function logTrend(sim: Sim, t0: number) {
+  const trend = (sim.trend ??= []);
+  const v = effectiveVitals(sim);
+  const flags = new Set(sim.flags);
+  const add = (t: number, k: TrendPoint["k"], value: number | null | undefined) => {
+    if (value !== null && value !== undefined && !trend.some((p) => p.t === t && p.k === k)) trend.push({ t, k, v: value });
+  };
+  const hrShown = flags.has("monitor") && !flags.has("cpr") && hasPulse(current(sim));
+  if (hrShown) add(sim.t, "hr", v.hr);
+  else if (sim.measured.hr && sim.measured.hr.t >= t0) add(sim.measured.hr.t, "hr", sim.measured.hr.value);
+  if (flags.has("spo2probe")) add(sim.t, "spo2", v.spo2);
+  if (sim.measured.sbp && sim.measured.sbp.t >= t0) {
+    add(sim.measured.sbp.t, "sbp", sim.measured.sbp.value);
+    add(sim.measured.dbp?.t ?? sim.measured.sbp.t, "dbp", sim.measured.dbp?.value);
   }
 }
 

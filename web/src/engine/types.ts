@@ -8,6 +8,9 @@
 export type Range = number | [number, number];
 export type Sex = "m" | "f";
 
+/** One reading on the vitals chart: live from the monitor/probe, or a measurement (BP). */
+export type TrendPoint = { t: number; k: "hr" | "sbp" | "dbp" | "spo2"; v: number };
+
 export type VitalKey = "hr" | "sbp" | "dbp" | "rr" | "spo2" | "etco2" | "glucose" | "temp" | "gcs";
 
 export type RhythmId =
@@ -370,6 +373,8 @@ export type Sim = {
   feedback: Feedback[];
   /** Last value the student measured, per vital (shown on the monitor panel). */
   measured: Partial<Record<VitalKey, { value: number | null; t: number }>>;
+  /** What the monitor showed over time, for the debrief's vitals chart (older saved runs lack it). */
+  trend?: TrendPoint[];
   /** Seconds without a pulse and without CPR. */
   noFlow: number;
   /** The engine asked for a missing detail (e.g. a dose); the next message may answer it. */

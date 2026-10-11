@@ -2,7 +2,7 @@
 // "weak spots" summary computed from a student's saved results. Pure — the
 // database calls are in results.ts.
 
-import { debrief, scorePct, stepCredit } from "../engine/debrief";
+import { debrief, scorePct, stepCredit, vitalsChartData, type VitalsChartData } from "../engine/debrief";
 import type { Content, Message, Sim } from "../engine/types";
 
 export type ResultDetails = {
@@ -36,6 +36,8 @@ export type Transcript = {
   complication: string | null;
   statements: { t: number; text: string }[];
   messages: Message[];
+  /** The debrief's vitals chart (absent in runs saved before it existed). */
+  vitals?: VitalsChartData;
 };
 
 export function buildTranscript(sim: Sim): Transcript {
@@ -46,6 +48,7 @@ export function buildTranscript(sim: Sim): Transcript {
     complication: sim.comp?.id ?? null,
     statements: sim.statements ?? [],
     messages: sim.messages,
+    vitals: vitalsChartData(sim),
   };
 }
 

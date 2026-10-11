@@ -1,6 +1,7 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Bubble, DispatchCard } from "../components/Chat";
+import { VitalsChart } from "../components/VitalsChart";
 import { clock } from "../engine/engine";
 import { percent, weakSpots, type ResultRow, type Transcript } from "../lib/history";
 import { loadTranscript, RESULT_COLUMNS, setKeepTranscripts } from "../lib/results";
@@ -208,6 +209,7 @@ function RunView({ row }: { row: AdminResultRow }) {
       <div className="space-y-3">
         {t.messages.map((m, i) => (i === 0 && m.from === "examiner" && "text" in m ? <DispatchCard key={i} text={m.text} /> : <Bubble key={i} m={m} />))}
       </div>
+      {t.vitals && <VitalsChart data={t.vitals} />}
       <div className="space-y-2 border-t border-line pt-3 text-sm">
         <p className="font-semibold">
           {percent(row)}% · {row.score_done}/{row.score_total} פעולות לפי הפרוטוקול

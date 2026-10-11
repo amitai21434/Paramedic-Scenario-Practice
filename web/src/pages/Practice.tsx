@@ -3,6 +3,7 @@ import { useAuth } from "../auth";
 import { Bubble, DispatchCard } from "../components/Chat";
 import { LiveMonitor } from "../components/Ecg";
 import { ScoreRing } from "../components/Score";
+import { VitalsChart } from "../components/VitalsChart";
 import { debrief } from "../engine/debrief";
 import { clock, ecgSnapshot, pickTemplate, rollComplication, startSim, step } from "../engine/engine";
 import { effectiveVitals } from "../engine/physiology";
@@ -408,6 +409,8 @@ function DebriefView({ content, sim, onNew }: { content: Content; sim: Sim; onNe
           </ul>
         </div>
       )}
+
+      <VitalsChart data={d.vitals} />
 
       <div>
         <h3 className="mb-2 font-semibold">לפי הפרוטוקול</h3>

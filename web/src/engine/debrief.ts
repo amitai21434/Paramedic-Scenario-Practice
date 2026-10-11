@@ -6,7 +6,7 @@ import { ACTIONS, DRUGS, RHYTHM_NAMES, ROUTE_LABELS } from "./lexicon";
 import { mentions } from "./parse";
 import { unitLabel } from "./dose";
 import { ageText } from "./generate";
-import type { Content, Sim } from "./types";
+import type { Content, Sim, TrendPoint } from "./types";
 
 export type Debrief = {
   title: string;
@@ -28,7 +28,29 @@ export type Debrief = {
   score: { done: number; total: number; criticalMissed: number; late: number; penalty: number; pct: number };
   /** The random complication that happened this run, if any. */
   complication: { title: string; at: number; resolvedAt: number | null } | null;
+  /** The vitals chart: what the monitor showed, and the drugs and procedures that may have moved it. */
+  vitals: VitalsChartData;
 };
+
+export type VitalsChartData = { trend: TrendPoint[]; events: { t: number; label: string }[]; end: number };
+
+/** Procedures worth marking on the vitals chart (drugs are always marked). */
+const CHART_ACTIONS: Record<string, string> = {
+  shock: "⚡ שוק", sync: "⚡ היפוך מסונכרן", pacing: "קיצוב", needle: "ניקור חזה", intubation: "אינטובציה",
+  cpap: "CPAP", tourniquet: "חוסם עורקים", pelvicBinder: "מקבע אגן", vagal: "גירוי וגאלי", cpr: "עיסויים",
+};
+
+export function vitalsChartData(sim: Sim): VitalsChartData {
+  const events: { t: number; label: string }[] = [];
+  let inCpr = false;
+  for (const a of sim.actions) {
+    if (a.drug) events.push({ t: a.t, label: DRUGS.find((d) => d.id === a.drug!.drug)?.name ?? a.drug.drug });
+    else if (CHART_ACTIONS[a.action] && !(a.action === "cpr" && inCpr)) events.push({ t: a.t, label: CHART_ACTIONS[a.action] });
+    // Only the first of a run of CPR cycles is marked.
+    if (!a.drug) inCpr = a.action === "cpr" || (inCpr && a.action !== "pulse" && a.action !== "rhythmCheck");
+  }
+  return { trend: sim.trend ?? [], events, end: sim.ended?.t ?? sim.t };
+}
 
 const OUTCOMES: Record<NonNullable<Sim["ended"]>["how"], string> = {
   transport: "הגעתם לבית החולים.",
@@ -119,6 +141,7 @@ export function debrief(content: Content, sim: Sim): Debrief {
       ? { title: content.complications?.[sim.comp.id]?.title ?? sim.comp.id, at: sim.comp.t, resolvedAt: sim.comp.resolvedAt }
       : null,
     diagnosis: { items, rhythms, unmatched },
+    vitals: vitalsChartData(sim),
     patient: g(
       `${c.age < 1 ? "[[תינוק|תינוקת]]" : c.age < 16 ? "[[ילד|ילדה]]" : "[[גבר|אישה]]"} [[בן|בת]] ${ageText(c.age)}, ${c.weight} ק"ג. ` +
         `רקע: ${c.history}. תרופות: ${c.meds}. רגישויות: ${c.allergies}.`,
