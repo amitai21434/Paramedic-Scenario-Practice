@@ -1,0 +1,20 @@
+[
+  { "id": "acs", "variant": "inferiorRv", "seedFacts": ["pde5"], "errors": ["אין־אונות"],
+    "lines": ["מוניטור ואקג 12", "לחץ דם", "יש אלרגיות?", "ניטרו 0.4 מג מתחת ללשון"] },
+  { "id": "bradycardia", "variant": "atropine", "errors": ["עיסויים למטופל עם דופק"],
+    "lines": ["מוניטור", "לחץ דם", "מצב הכרה", "מתחיל עיסויים"] },
+  { "id": "stridor", "variant": "croup", "errors": ["להשכיב"],
+    "lines": ["התרשמות כללית", "סטורציה", "משכיב את הילד"] },
+  { "id": "choking", "variant": "partial", "seedVars": { "coughWorks": 0 }, "errors": ["טפיחות"],
+    "lines": ["התרשמות כללית", "טפיחות על הגב"] },
+  { "id": "asthma", "variant": "moderate", "errors": ["אדרנלין"],
+    "lines": ["סטורציה", "האזנה לריאות", "יש אלרגיות?", "אדרנלין 0.5 מג לשריר"] },
+  { "id": "pedsSeizure", "variant": "status", "errors": ["מינון שגוי"],
+    "lines": ["חמצן", "סוכר", "דורמיקום 10 מג לאף"] },
+  { "id": "loc", "variant": "opioid", "errors": ["הושבה של מטופל ללא הכרה"],
+    "lines": ["מצב הכרה", "נתיב אוויר ונשימה", "מושיב את המטופל"] },
+  { "id": "copd", "variant": "narcosis", "errors": ["CPAP"],
+    "lines": ["מצב הכרה", "קפנוגרפיה", "CPAP"] },
+  { "id": "acs", "variant": "chb", "errors": ["ניטר"],
+    "lines": ["מוניטור", "לחץ דם", "יש אלרגיות?", "לקחת ויאגרה?", "ניטרו 0.4 מג מתחת ללשון"] }
+]

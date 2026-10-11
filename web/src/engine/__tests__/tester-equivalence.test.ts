@@ -9,6 +9,7 @@ import os from "node:os";
 import { describe, expect, it } from "vitest";
 import { debrief } from "../debrief";
 import { startSim, step } from "../engine";
+import { generate } from "../generate";
 import type { Sim } from "../types";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -16,7 +17,28 @@ const hasContent = fs.existsSync(path.join(root, "content"));
 const content = !hasContent ? { cases: [] } : JSON.parse(execFileSync(process.execPath, [path.join(root, "reference/content.mjs")], { encoding: "utf8" }));
 const OUT = os.tmpdir();
 type Script = { id: string; variant: string | null; seed: number; complications: string[] | null; lines: string[] };
-const scripts: Script[] = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "fixtures/by-the-book-scripts.json"), "utf8"));
+/** Seed for a coverage script: first patient with no allergy drug and the script's case variables. */
+function coverageSeed(id: string, variant: string | null, vars: Record<string, number> = {}, facts: string[] = []): number {
+  const t = content.cases.find((c: { id: string }) => c.id === id);
+  for (let seed = 1; seed < 5000; seed++) {
+    const c = generate(t, seed, variant ?? undefined);
+    if (!c.allergyDrug && Object.entries(vars).every(([k, v]) => c.vars[k] === v) && facts.every((x) => c.facts.includes(x))) return seed;
+  }
+  throw new Error(`no seed for ${id}/${variant}`);
+}
+
+const fixture = (name: string) => JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "fixtures", name), "utf8"));
+const scripts: Script[] = !hasContent ? [] : [
+  ...fixture("by-the-book-scripts.json"),
+  // coverage.test.ts — storylines the other files don't walk through.
+  ...fixture("coverage-scripts.json").map((c: { id: string; variant: string | null; seedVars?: Record<string, number>; lines: string[] }) => ({
+    id: c.id, variant: c.variant, seed: coverageSeed(c.id, c.variant, c.seedVars), complications: null, lines: c.lines,
+  })),
+  // mistakes.test.ts — the penalty must fire however the mistake is phrased.
+  ...fixture("mistake-scripts.json").map((c: { id: string; variant: string | null; seedVars?: Record<string, number>; seedFacts?: string[]; lines: string[] }) => ({
+    id: c.id, variant: c.variant, seed: coverageSeed(c.id, c.variant, c.seedVars, c.seedFacts), complications: null, lines: c.lines,
+  })),
+];
 
 function rng(seed: number) {
   let s = seed >>> 0 || 1;
