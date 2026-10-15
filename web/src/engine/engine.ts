@@ -9,6 +9,7 @@ import { notCarried, parse, tokenize, type ParsedItem } from "./parse";
 import { consciousnessText, current, effectiveVitals, finding, hasPulse, isShockable, minSbp, RHYTHMS, snapshot, stateDef } from "./physiology";
 import type {
   AnswerKey,
+  ComplicationDef,
   Cond,
   Content,
   DrugGiven,
@@ -107,6 +108,9 @@ export function startSim(content: Content, templateId: string, seed: number, var
   out.text(`📟 ${c.dispatch}`);
   out.text(c.scene);
   enter(sim, c.template.initial, out);
+  // A scene event that's there from arrival (a language barrier) is told with the opening scene.
+  const first = c.complication?.ids.find((id) => evalCond(content, sim, content.complications![id].eligible));
+  if (first && content.complications![first].early) startComplication(content, sim, first, out);
   out.flush(sim);
   return sim;
 }
@@ -355,7 +359,7 @@ function complicationTick(content: Content, sim: Sim, out: Output) {
     if (!plan || sim.t < plan.at || sim.t > plan.until) return;
     for (const id of plan.ids) {
       const def = content.complications?.[id];
-      if (!def || !evalCond(content, sim, def.eligible)) continue;
+      if (!def || def.early || !evalCond(content, sim, def.eligible)) continue;
       startComplication(content, sim, id, out);
       return;
     }
@@ -379,12 +383,24 @@ function complicationTick(content: Content, sim: Sim, out: Output) {
   }
 }
 
+/** The language a language-barrier event uses this run (fixed per seed). */
+function compLanguage(sim: Sim, def: ComplicationDef): string {
+  const langs = def.languages ?? [];
+  return langs.length ? langs[sim.case.seed % langs.length] : "";
+}
+/** Who can interpret: the person at the scene, or the phone interpreter through dispatch. */
+function interpreterHint(sim: Sim): string {
+  return sim.case.bystander ? `${sim.case.bystander} [[מדבר|מדברת]] עברית.` : "אין בזירה מי שמדבר עברית — אפשר להיעזר במתורגמן טלפוני דרך המוקד.";
+}
+
 function startComplication(content: Content, sim: Sim, id: string, out: Output) {
   const def = content.complications?.[id];
   if (!def) return;
   for (const f of def.clearFlags ?? []) setFlag(sim, f, false);
   sim.comp = { id, t: sim.t, n: sim.actions.length, resolvedAt: null, worse: false, vitals: { ...def.vitals }, cap: { ...def.cap }, findings: resolveFindings(sim, def.findings) };
-  out.text(resolve(def.say, sim.case));
+  // A language barrier names the language and who can interpret.
+  if (def.languages?.length) out.text(resolve(`[[המטופל|המטופלת]] [[מדבר|מדברת]] רק ${compLanguage(sim, def)} ולא [[מבין|מבינה]] עברית. ${interpreterHint(sim)}`, sim.case));
+  else out.text(resolve(def.say, sim.case));
 }
 
 function resolveFindings(sim: Sim, f: Partial<Record<FindingKey, Text>> | undefined): Partial<Record<FindingKey, string>> {
@@ -395,7 +411,7 @@ function resolveFindings(sim: Sim, f: Partial<Record<FindingKey, Text>> | undefi
  * Rolls whether this run gets a complication (about one in three) and which
  * ones may appear, in random order. Deterministic for a seed.
  */
-export function rollComplication(content: Content, templateId: string, seed: number, variantId?: string, chance = 0.35): string[] | null {
+export function rollComplication(content: Content, templateId: string, seed: number, variantId?: string, chance = 0.4): string[] | null {
   const template = content.cases.find((c) => c.id === templateId);
   const t = template ? generate(template, seed, variantId).template : undefined;
   const allowed = t?.complications;
@@ -465,6 +481,8 @@ export function evalCond(content: Content, sim: Sim, c: Cond, strict = false): b
   if ("any" in c) return c.any.some((x) => evalCond(content, sim, x, strict));
   if ("not" in c) return !evalCond(content, sim, c.not, strict);
   if ("age" in c) return (c.age.lt === undefined || sim.case.age < c.age.lt) && (c.age.gt === undefined || sim.case.age > c.age.gt);
+  if ("scene" in c) return new RegExp(c.scene).test(`${sim.case.dispatch} ${sim.case.scene}`);
+  if ("talks" in c) return canTalk(sim) === c.talks;
   if ("comp" in c) return sim.comp?.id === c.comp && (c.resolved === undefined || (sim.comp.resolvedAt !== null) === c.resolved);
   // Actions performed after the complication started (by position, so a same-second action before it doesn't count).
   const afterComp = (i: number) => sim.comp != null && i >= sim.comp.n;
@@ -760,6 +778,18 @@ function logTrend(sim: Sim, t0: number) {
   }
 }
 
+/** Making a scene safe never counts as "carrying on" in an unsafe scene. */
+const SCENE_SAFETY = ["scene", "backup", "callPolice", "callFire", "evacuate", "ventilate", "gasOff", "secureDog", "transport", "end", "wait"];
+/** Action ids a condition refers to. */
+function condActions(c: Cond | undefined): string[] {
+  if (!c) return [];
+  if ("done" in c) return [c.done];
+  if ("all" in c) return c.all.flatMap(condActions);
+  if ("any" in c) return c.any.flatMap(condActions);
+  if ("not" in c) return condActions(c.not);
+  return [];
+}
+
 /** IO goes wherever IV goes (the protocols treat them alike). */
 const routeAllowed = (routes: string[], route: string) => routes.includes(route) || (route === "io" && routes.includes("iv"));
 
@@ -817,6 +847,12 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
   const say = (s: string) => out.text(resolve(s, c));
   const measure = (k: VitalKey) => (sim.measured[k] = { value: v[k], t: sim.t });
 
+  const comp = sim.comp && sim.comp.resolvedAt === null ? content.complications?.[sim.comp.id] : undefined;
+  if (comp?.unsafe && !SCENE_SAFETY.includes(id) && !condActions(comp.resolvedWhen).includes(id) && !sim.actions.some((a) => a.action === "unsafeScene")) {
+    sim.actions.push({ action: "unsafeScene", t: sim.t, state: sim.state });
+    feedback(sim, "error", comp.unsafe);
+  }
+
   const actionRule = sim.case.template.actions?.[id];
   for (const b of actionRule?.before ?? []) {
     if (!evalCond(content, sim, b.when)) feedback(sim, "error", `${actionDef(id).label}: ${b.why}`);
@@ -848,6 +884,8 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     if (q === "complaint" && IMPROVED.has(sim.state) && !current(sim).answers?.complaint && canTalk(sim)) {
       return say('[[המטופל|המטופלת]]: "אני [[מרגיש|מרגישה]] יותר טוב עכשיו."');
     }
+    // A language barrier: the patient answers, but nobody understands — until someone interprets.
+    if (comp?.languages && canTalk(sim)) return say(`[[המטופל|המטופלת]] [[עונה|עונה]] ב${compLanguage(sim, comp)} — לא מצליחים להבין. ${interpreterHint(sim)}`);
     if (canTalk(sim)) return say(`[[המטופל|המטופלת]]: "${text}"`);
     // A drowsy patient who still talks says their own complaint ("אני... לא... מצליחה לנשום").
     if (q === "complaint" && !bystanderLine && pulse && (v.gcs ?? 15) >= 9 && !flags.has("intubated")) return say(`[[המטופל|המטופלת]]: "${text}"`);
@@ -965,6 +1003,30 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "reportDispatch":
       record();
       return say("המוקד המרחבי קיבל את הדיווח.");
+    case "ventilate":
+      record();
+      return say("החלונות נפתחו, יש זרימת אוויר.");
+    case "gasOff":
+      record();
+      return say("ברז הגז נסגר.");
+    case "evacuate":
+      record();
+      return say("[[המטופל|המטופלת]] [[הוצא|הוצאה]] החוצה, לאוויר הפתוח, יחד עם כל מי שהיה בבית.");
+    case "callFire":
+      record();
+      return say("כוחות כיבוי והצלה בדרך.");
+    case "secureDog":
+      record();
+      return say("בעל הבית לוקח את הכלב לחדר אחר וסוגר את הדלת.");
+    case "interpreter": {
+      record();
+      return say(sim.case.bystander ? `${sim.case.bystander} [[מתרגם|מתרגמת]] בשבילכם.` : "מתורגמן טלפוני דרך המוקד מצטרף לשיחה ומתרגם.");
+    }
+    case "secondPatient": {
+      record();
+      const def2 = sim.comp ? content.complications?.[sim.comp.id] : undefined;
+      return say(def2?.second ? `הנפגע הנוסף: ${resolve(def2.second, c)}` : "אין נפגע נוסף בזירה.");
+    }
     case "sceneAccess":
       record();
       return say("יש גישה לאמבולנס עד המטופל.");

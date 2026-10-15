@@ -38,11 +38,11 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(items(sim)).toEqual([]);
   });
 
-  it("are rolled in about a third of runs, the same way for the same seed", () => {
+  it("are rolled in about 40% of runs (twists and scene events share one pool), the same way for the same seed", () => {
     let n = 0;
     for (let seed = 1; seed <= 2000; seed++) if (rollComplication(content, "acs", seed)) n++;
-    expect(n / 2000).toBeGreaterThan(0.28);
-    expect(n / 2000).toBeLessThan(0.42);
+    expect(n / 2000).toBeGreaterThan(0.34);
+    expect(n / 2000).toBeLessThan(0.46);
     expect(rollComplication(content, "acs", 77)).toEqual(rollComplication(content, "acs", 77));
   });
 
@@ -212,6 +212,52 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(last(kid)).toMatch(/^(אמו|אמה): "(הוא שוקל|היא שוקלת) בערך \d+ ק"ג/);
     const side = run(startSim(content, "loc", 3, "hypo"), ["אני משכיבה אותה על הצד"]);
     expect(side.actions.some((a) => a.action === "positionSupine")).toBe(false);
+  });
+
+  it("scene event — gas: carrying on is an error once; getting out makes it safe", () => {
+    let sim = untilStarted(startSim(content, "bradycardia", 1, "atropine", ["gasLeak"]));
+    expect(sim.messages.some((m) => "text" in m && m.text.includes("ריח חזק של גז"))).toBe(true);
+    sim = run(sim, ["לחץ דם", "דופק"]);
+    expect(errors(sim).filter((e) => e.includes("ריח גז")).length).toBe(1);
+    sim = run(sim, ["מוציאה את כולם מהבית", "מזעיקה כיבוי"]);
+    expect(sim.comp!.resolvedAt).not.toBeNull();
+    expect(items(sim).every((i) => i.doneAt !== null)).toBe(true);
+  });
+
+  it("scene event — gas handled straight away (open windows, shut the gas) costs nothing", () => {
+    let sim = untilStarted(startSim(content, "bradycardia", 1, "atropine", ["gasLeak"]));
+    sim = run(sim, ["פותחת חלונות וסוגרת את הגז", "לחץ דם"]);
+    expect(sim.comp!.resolvedAt).not.toBeNull();
+    expect(errors(sim).filter((e) => e.includes("ריח גז"))).toEqual([]);
+  });
+
+  it("scene event — dog: asking for it to be taken away resolves it", () => {
+    let sim = untilStarted(startSim(content, "bradycardia", 1, "atropine", ["dog"]));
+    sim = run(sim, ["מבקשת להרחיק את הכלב", "לחץ דם"]);
+    expect(sim.comp!.resolvedAt).not.toBeNull();
+    expect(errors(sim)).toEqual([]);
+  });
+
+  it("scene event — second casualty: a quick look, and a second team", () => {
+    let sim = untilStarted(startSim(content, "hemorrhage", 1, "pelvis", ["secondCasualty"]));
+    sim = run(sim, ["בודק את הנפגע השני"]);
+    expect((sim.messages.at(-1) as { text: string }).text).toMatch(/^הנפגע הנוסף: .*נושם/);
+    sim = run(sim, ["מזמינה צוות נוסף"]);
+    expect(sim.comp!.resolvedAt).not.toBeNull();
+    expect(items(sim).every((i) => i.doneAt !== null)).toBe(true);
+  });
+
+  it("scene event — language barrier from arrival: answers aren't understood until someone interprets", () => {
+    let sim = startSim(content, "acs", 4, "anterior", ["language"]);
+    expect(sim.comp?.id).toBe("language");
+    expect((sim.messages[0] as { text: string }).text).toMatch(/רק (רוסית|ערבית|אמהרית) ולא מבי.* עברית/);
+    sim = run(sim, ["מה קרה?"]);
+    expect((sim.messages.at(-1) as { text: string }).text).toMatch(/לא מצליחים להבין/);
+    sim = run(sim, ["מבקשת מהבן משפחה לתרגם", "מה קרה?"]);
+    expect((sim.messages.at(-1) as { text: string }).text).toMatch(/^המטופל[ת]?: "/);
+    expect(items(sim).every((i) => i.doneAt !== null)).toBe(true);
+    // never for a patient who can't talk
+    expect(startSim(content, "arrest", 3, "vf", ["language"]).comp ?? null).toBeNull();
   });
 
   it("late steps count half", () => {

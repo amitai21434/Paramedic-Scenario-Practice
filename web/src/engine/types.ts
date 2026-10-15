@@ -90,6 +90,10 @@ export type Cond =
   | { comp: string; resolved?: boolean }
   /** The patient's age in years compares against a value. */
   | { age: { lt?: number; gt?: number } }
+  /** The dispatch + scene text matches this pattern (a home, a road accident…). */
+  | { scene: string }
+  /** The patient can hold a conversation right now. */
+  | { talks: boolean }
   /** An ongoing intervention is active (cpr, o2, iv, monitor, cpap, pacing, intubated, …). */
   | { flag: string }
   /** An intervention has been running for at least `sec` seconds (e.g. cooling for 5 minutes). */
@@ -280,6 +284,14 @@ export type ComplicationDef = {
   /** If still unresolved after "after" seconds, it gets worse (once). */
   worsen?: { after: number; say?: Text; vitals?: Partial<Record<VitalKey, number>>; findings?: Partial<Record<FindingKey, Text>> };
   checklist: ChecklistItem[];
+  /** A scene event present from arrival (told in the opening scene), not at a random moment. */
+  early?: boolean;
+  /** While unresolved, carrying on with anything but making the scene safe is an error (once). */
+  unsafe?: string;
+  /** While unresolved, the patient's own answers can't be understood (a language barrier). One is picked per run. */
+  languages?: string[];
+  /** What a quick look at a second casualty finds. */
+  second?: Text;
 };
 
 export type Content = {

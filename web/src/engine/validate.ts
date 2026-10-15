@@ -70,8 +70,14 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[], comps
     } else if ("state" in c || "visited" in c) {
       const s = "state" in c ? c.state : c.visited;
       if (!states[s]) p(`${ctx}: unknown state "${s}"`);
-    } else if ("age" in c) {
+    } else if ("age" in c || "talks" in c) {
       // nothing to check
+    } else if ("scene" in c) {
+      try {
+        new RegExp(c.scene);
+      } catch {
+        p(`${ctx}: bad scene pattern "${c.scene}"`);
+      }
     } else if ("comp" in c) {
       if (!comps.has(c.comp)) p(`${ctx}: unknown complication "${c.comp}"`);
     } else if (!("fact" in c || "vital" in c || "pulse" in c || "sex" in c)) p(`${ctx}: unrecognized condition ${JSON.stringify(c)}`);

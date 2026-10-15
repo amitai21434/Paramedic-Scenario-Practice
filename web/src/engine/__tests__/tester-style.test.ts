@@ -351,7 +351,12 @@ const CASES: { text: string; items: string[]; prepared?: string[] }[] = [
       "askHistory",
       "glucose"
     ]
-  }
+  },
+  {text: "פותחים חלונות וסוגרים את הגז",items: ["ventilate","gasOff"]},
+  {text: "יש כלב שנובח, אני מבקשת מהבעלים להכניס אותו לחדר",items: ["secureDog"]},
+  {text: "נהג נוסף פצוע, אני מזמינה צוות נוסף ובודקת אותו מהר",items: ["secondPatient","backup"]},
+  {text: "המטופל מדבר רק רוסית, אני מבקשת מהאישה שלו לתרגם",items: ["interpreter"]},
+  {text: "יש לך עוד תלונות?",items: ["askSymptoms"]}
 ];
 
 describe("tester-style messages", () => {
