@@ -34,6 +34,14 @@ describe("parse", () => {
     expect(ids("מה הקצב?")).toEqual(["rhythmCheck"]);
     expect(ids("יש לך אלרגיות? פותח וריד")).toEqual(["askAllergies", "iv"]);
     expect(ids("אספירין, 300 מג")).toEqual(["aspirin:300mg"]);
+  });
+
+  it("a dose answer keeps its route; numbers that aren't doses stay what they are", () => {
+    expect(parse("0.4 מג מתחת ללשון")).toMatchObject({ items: [], bare: { value: 0.4, unit: "mg", route: "sl" } });
+    expect(parse("200 מג לשריר").bare).toMatchObject({ route: "im" });
+    expect(ids("12 לידים")).toEqual(["ecg12"]);
+    expect(ids("30:2")).toEqual(["cpr"]);
+    expect(ids("300 מג אספירין")).toEqual(["aspirin:300mg"]);
     expect(ids("ניקור חזה במחט בצד שמאל")).toEqual(["needle"]);
     expect(ids("משכיבה על צד שמאל")).toEqual(["positionSide"]);
     expect(ids("חמצן במשקפיים 2 ליטר, מטרה סטורציה 88-92")).toEqual(["o2", "spo2"]);
@@ -69,7 +77,7 @@ describe("parse", () => {
     expect(ids("לא נותן ניטרו, נותן נוזלים 250")).toEqual(["saline:250"]);
   });
   it("leaves a bare quantity for pending questions", () => {
-    expect(parse("300 מג").bare).toEqual({ value: 300, unit: "mg" });
+    expect(parse("300 מג").bare).toMatchObject({ value: 300, unit: "mg" });
   });
   it("keeps a following action out of a drug's dose", () => {
     expect(ids("אדנוזין ואקג 12")).toEqual(["adenosine:?", "ecg12"]);

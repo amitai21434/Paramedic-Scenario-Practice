@@ -1,5 +1,6 @@
-// Opt-in (EQUIV=1, ~3 min): replays every by-the-book script from the other test files rewritten in the
-// first real tester's style — merged steps, "אני…", delegation, reasoning words, typos — and checks the
+// Opt-in (EQUIV=1, ~6 min): replays every by-the-book script from the other test files rewritten the way
+// real testers write — narrative (tester A: merged steps, "אני…", delegation, reasoning words) and terse
+// (tester B: keywords, drug then dose in a second message), each with and without typos — and checks the
 // result matches the plain script. fixtures/by-the-book-scripts.json was recorded from those tests.
 // Differences are written to the OS temp folder (tester-equivalence-*.txt).
 import { execFileSync } from "node:child_process";
@@ -10,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { debrief } from "../debrief";
 import { startSim, step } from "../engine";
 import { generate } from "../generate";
+import { DRUGS } from "../lexicon";
 import type { Sim } from "../types";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -107,6 +109,33 @@ function styled(s: Script, withTypos: boolean, k: number): string[] {
   return out;
 }
 
+// Tester B writes keywords: no verb, no "יש", no "?", and often the drug alone with the dose in the next
+// message ("פנטניל" → "100 מקג").
+const DRUG_WORDS = new Set(DRUGS.flatMap((d) => d.words));
+const DROP_VERB = new Set(["בודק", "בודקת", "מודד", "מודדת", "מחבר", "מחברת", "פותח", "פותחת", "נותן", "נותנת", "שואל", "שואלת", "מקשיב", "מקשיבה", "סופר", "סופרת", "מבצע", "מבצעת", "עושה"]);
+function terse(s: Script, withTypos: boolean, k: number): string[] {
+  const r = rng(s.seed * 17 + s.lines.length + k * 104729);
+  const out: string[] = [];
+  for (const line of s.lines) {
+    if (SOLO(line)) {
+      out.push(line);
+      continue;
+    }
+    let words = line.replace(/\?$/, "").split(" ");
+    // Drop the verb only when a real keyword is left ("מחבר מוניטור" → "מוניטור", but not "מושיב את המטופל").
+    if (DROP_VERB.has(words[0]) && words.length > 1 && !/^(את|ל|על|ב)/.test(words[1])) words = words.slice(1);
+    if (words[0] === "יש" && words.length > 1) words = words.slice(1);
+    const msg = words.join(" ");
+    // "אדרנלין 1 מג IV" → "אדרנלין", then "1 מג IV"
+    const dose = /^(\S+)\s+(\d[\d.,]*\s*\S*.*)$/.exec(msg);
+    // (not when another drug follows — "2.5 מג ואירובנט 0.5 מג" alone is ambiguous even to a person)
+    const another = dose && dose[2].split(" ").some((w) => DRUG_WORDS.has(w.replace(/^ו/, "")));
+    const parts = dose && !another && r() < 0.5 && DRUG_WORDS.has(dose[1]) ? [dose[1], dose[2]] : [msg];
+    for (const p of parts) out.push(withTypos ? typo(p, r) : p);
+  }
+  return out;
+}
+
 function play(s: Script, lines: string[]) {
   let sim: Sim = startSim(content, s.id, s.seed, s.variant ?? undefined, s.complications ?? undefined);
   const notUnderstood: string[] = [];
@@ -129,14 +158,14 @@ function play(s: Script, lines: string[]) {
 const TIMING_ONLY = ["acs/anterior", "acs/anteriorVf", "loc/hypo"];
 
 describe.skipIf(!process.env.EQUIV || !hasContent)("tester-style equivalence", () => {
-for (const withTypos of [false, true]) {
-  it(`equivalence ${withTypos ? "with typos" : "style only"}`, () => {
+for (const [mode, withTypos] of [["narrative", false], ["narrative", true], ["terse", false], ["terse", true]] as const) {
+  it(`equivalence: ${mode}${withTypos ? " with typos" : ""}`, () => {
     const report: string[] = [];
     let bad = 0;
     for (const s0 of scripts) for (let k = 0; k < 5; k++) {
       const s = s0;
       const a = play(s, s.lines);
-      const lines = styled(s, withTypos, k);
+      const lines = mode === "terse" ? terse(s, withTypos, k) : styled(s, withTypos, k);
       const b = play(s, lines);
       const lost = [...a.done].filter((x) => !b.done.has(x));
       const extraDone = [...b.done].filter((x) => !a.done.has(x));
@@ -157,8 +186,8 @@ for (const withTypos of [false, true]) {
       const msgs = b.sim.messages.filter((m) => m.from === "user") as { text: string; items?: string[] }[];
       report.push("  read: " + msgs.map((m) => `[${(m.items ?? []).join("; ")}]`).join(" "));
     }
-    fs.writeFileSync(path.join(OUT, `tester-equivalence-${withTypos ? "typos" : "style"}.txt`), `${scripts.length * 5 - bad}/${scripts.length * 5} equivalent\n` + report.join("\n"));
-    expect(report.filter((l) => l.startsWith("### ") && !TIMING_ONLY.some((id) => l.startsWith(`### ${id} `)))).toEqual([]);
+    fs.writeFileSync(path.join(OUT, `tester-equivalence-${mode}${withTypos ? "-typos" : ""}.txt`), `${scripts.length * 5 - bad}/${scripts.length * 5} equivalent\n` + report.join("\n"));
+    expect(report.map((l) => l.trim()).filter((l) => l.startsWith("### ") && !TIMING_ONLY.some((id) => l.startsWith(`### ${id} `)))).toEqual([]);
   }, 600000);
 }
 });

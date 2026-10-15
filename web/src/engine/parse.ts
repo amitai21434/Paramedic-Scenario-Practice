@@ -15,7 +15,7 @@ export type Parsed = {
   /** Clauses stating a diagnosis or ECG reading — recorded, not acted on. */
   statements: string[];
   /** A number (with optional unit) that wasn't attached to anything — answers "what dose?". */
-  bare: { value: number; unit: string | null } | null;
+  bare: { value: number; unit: string | null; route?: string | null } | null;
   negated: string[];
   /** Actions or drugs only got ready ("מוציאה ציוד הנשמה", "מכינה אדנוזין") — not done. */
   prepared: string[];
@@ -23,6 +23,8 @@ export type Parsed = {
   planned: string[];
   /** The IV line was flushed ("שוטפת עם סליין") — not a fluid bolus. */
   flush: boolean;
+  /** Drugs whose contraindications were checked ("קונטרה אינדיקציות לניטרט") — a dose may follow. */
+  contra?: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -82,7 +84,7 @@ function distance(a: string, b: string, max: number): number {
 }
 
 // Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
-const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת", "ריאות", "לריאות", "מוצץ", "מוצצת", "מציצה", "מגיב", "מגיבה", "אוושה", "אוושות", "אקמול", "ימניים", "ימנים", "עיניים", "עינים"].map(normalize));
+const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת", "ריאות", "לריאות", "מוצץ", "מוצצת", "מציצה", "מגיב", "מגיבה", "אוושה", "אוושות", "אקמול", "ימניים", "ימנים", "עיניים", "עינים", "פינוי", "שינוי", "קיבוע"].map(normalize));
 
 /** 0 = exact, 0.5 = sound-alike letter swap, 1 = other typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
@@ -209,6 +211,13 @@ const preparedBefore = (tokens: string[], start: number, end: number) =>
 const FLUSH_TOKENS = ["שוטף", "שוטפת", "שטיפה", "לשטוף", "שוטפים", "פלאש", "flush"].map(normalize);
 const flushedBefore = (tokens: string[], start: number) =>
   [start - 1, start - 2].some((k) => k >= 0 && variants(tokens[k]).some((v) => FLUSH_TOKENS.includes(v)));
+
+/** "קונטרה אינדיקציות לניטרט", "התוויות נגד לאדנוזין". */
+const CONTRA_TOKENS = ["קונטרה", "קונטראינדיקציות", "קונטרהאינדיקציות", "התוויות", "התויות", "אינדיקציות"].map(normalize);
+const contraBefore = (tokens: string[], start: number) =>
+  [start - 1, start - 2, start - 3].some((k) => k >= 0 && variants(tokens[k]).some((v) => CONTRA_TOKENS.includes(v)));
+/** Drugs measured by volume. */
+const VOLUME_DRUGS = ["saline"];
 
 /** "תמרון ולסלבה לא עבד": something that already failed is being talked about, not ordered again. */
 const FAILED_TOKENS = ["עבד", "עבדה", "עזר", "עזרה", "הצליח", "הצליחה", "השפיע", "השפיעה", "עוזר", "עוזרת"].map(normalize);
@@ -345,6 +354,7 @@ function parseClauses(text: string): Parsed {
     out.negated.push(...r.negated);
     out.prepared.push(...r.prepared);
     out.flush ||= r.flush;
+    if (r.contra?.length) out.contra = [...(out.contra ?? []), ...r.contra];
     out.bare ??= r.bare;
     buffer = [];
   };
@@ -449,10 +459,30 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
   const found: { pos: number; item: ParsedItem }[] = [];
   const negated: string[] = [];
   const prepared: string[] = [];
+  const contra: string[] = [];
   let flush = false;
   const mark = (a: number, b: number) => {
     for (let k = a; k < b; k++) used[k] = true;
   };
+
+  // Pass 0: a dose answering "באיזה מינון?" — "0.4 מג מתחת ללשון", "200 מג לשריר" — keeps its route
+  // (otherwise "ללשון" would read as a mouth exam). Only when the message starts with the number and names no drug.
+  let bareAnswer: Parsed["bare"] = null;
+  if (tokens.length && isNumber(tokens[0]) && !tokens.some((_, j) => bestAt(tokens, used, j, DRUG_PHRASES)?.cost === 0)) {
+    const q = readQuantity(tokens, used, 0);
+    // (a unit, or nothing else: "12 לידים" and "30:2" aren't doses)
+    if (q && (q.unit !== null || q.end === tokens.length)) {
+      mark(0, q.end);
+      bareAnswer = { value: q.value, unit: q.unit, route: null };
+      for (let j = q.end; j < tokens.length; j++) {
+        const r = bestAt(tokens, used, j, ROUTE_PHRASES, true);
+        if (!r) break;
+        bareAnswer.route ??= r.phrase.key;
+        mark(r.start, r.end);
+        j = r.end - 1;
+      }
+    }
+  }
 
   // Pass 1: drugs and their dose / unit / route.
   for (let i = 0; i < tokens.length; i++) {
@@ -472,6 +502,12 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     }
     if (preparedBefore(tokens, m.start, m.end)) {
       prepared.push(m.phrase.key);
+      i = m.end - 1;
+      continue;
+    }
+    // "קונטרה אינדיקציות לניטרט": checking whether it's allowed, not giving it.
+    if (contraBefore(tokens, m.start)) {
+      contra.push(m.phrase.key);
       i = m.end - 1;
       continue;
     }
@@ -515,10 +551,13 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
           continue;
         }
       }
-      // The next action starts here ("אדנוזין ואק"ג 12" — the 12 isn't a dose).
-      if (bestAt(tokens, used, j, ACTION_PHRASES)?.cost === 0) break;
+      // The next action starts here ("אדנוזין ואק"ג 12" — the 12 isn't a dose). "לפי משקל" is part of the dose.
+      const next = bestAt(tokens, used, j, ACTION_PHRASES);
+      if (next?.cost === 0 && next.phrase.key !== "askWeight") break;
     }
     if (unit?.startsWith("/")) unit = (DRUGS.find((d) => d.id === m.phrase.key)?.unit ?? "") + unit;
+    // Fluids are measured in ml: "סליין 20 מג לקג" is a slip for ml.
+    if (VOLUME_DRUGS.includes(m.phrase.key) && unit?.startsWith("mg")) unit = unit.replace(/^mg/, "ml");
     // "300 מג אספירין": quantity written before the drug.
     if (value === null) {
       for (let j = Math.max(0, m.start - 4); j < m.start; j++) {
@@ -567,6 +606,11 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       i = m.end - 1;
       continue;
     }
+    // "מינון לפי משקל" is a calculation, not a question about the weight.
+    if (m.phrase.key === "askWeight" && m.start > 0 && variants(tokens[m.start - 1]).includes("לפי")) {
+      i = m.end - 1;
+      continue;
+    }
     const item: ParsedItem = { kind: "action", id: m.phrase.key, phrase: m.phrase.text };
     if (m.phrase.key === "shock" || m.phrase.key === "sync") {
       // Energy right after ("שוק 200") or right before ("200 גאול שוק").
@@ -584,8 +628,9 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
   }
 
   // A lone quantity ("300 מג", "200") answers a pending question.
-  let bare: Parsed["bare"] = null;
+  let bare: Parsed["bare"] = bareAnswer;
   for (let i = 0; i < tokens.length; i++) {
+    if (bare) break;
     const q = readQuantity(tokens, used, i);
     if (q) {
       bare = { value: q.value, unit: q.unit };
@@ -603,5 +648,9 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     // "נוטל תרופות לאין־אונות?" is the PDE5 question, not the medication list ("לוקחת תרופות" still is).
     .filter((it, _k, all) => !(it.kind === "action" && it.id === "askMeds" && it.phrase === "תרופות" && all.some((o) => o.kind === "action" && (o.id === "askPde5" || o.id === "askAllergies"))))
     .filter((it, k, all) => it.kind === "drug" || REPEATABLE.includes(it.id) || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k);
-  return { items, bare, negated, prepared, planned: [], flush };
+  for (const d of contra) {
+    const checks = d === "nitro" || d === "isoket" ? ["askPde5", "bp"] : ["askAllergies"];
+    for (const id of checks) if (!items.some((it) => it.kind === "action" && it.id === id)) items.push({ kind: "action", id, phrase: "" });
+  }
+  return { items, bare, negated, prepared: [...new Set(prepared)], planned: [], flush, contra };
 }

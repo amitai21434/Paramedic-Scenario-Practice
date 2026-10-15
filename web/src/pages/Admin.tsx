@@ -1,10 +1,13 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Bubble, DispatchCard } from "../components/Chat";
 import { VitalsChart } from "../components/VitalsChart";
 import { clock } from "../engine/engine";
 import { percent, weakSpots, type ResultRow, type Transcript } from "../lib/history";
+import { loadContent } from "../lib/content";
+import { understoodNow } from "../lib/recheck";
 import { loadTranscript, RESULT_COLUMNS, setKeepTranscripts } from "../lib/results";
+import type { Content } from "../engine/types";
 import { supabase, type Profile } from "../lib/supabase";
 
 // Everything here is also enforced server-side: RLS only lets the admin read
@@ -239,36 +242,70 @@ type UnrecognizedRow = { id: number; text: string; scenario: string; created_at:
 /** Messages the scenario engine couldn't understand — words to add to the vocabulary (web/src/engine/lexicon.ts). */
 function Unrecognized() {
   const [rows, setRows] = useState<UnrecognizedRow[]>([]);
-  useEffect(() => {
+  const [content, setContent] = useState<Content | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(() => {
     supabase
       .from("unrecognized_inputs")
       .select("id, text, scenario, created_at")
       .order("id", { ascending: false })
-      .limit(100)
+      .limit(500)
       .then(({ data }) => setRows(data ?? []));
   }, []);
+  useEffect(() => {
+    load();
+    loadContent().then(setContent, () => setContent(null));
+  }, [load]);
+
+  // Messages the engine understands now (re-checked in the storyline they came from) are hidden.
+  const fixed = useMemo(() => (content ? rows.filter((r) => understoodNow(content, r.text, r.scenario)) : []), [rows, content]);
+  const still = rows.filter((r) => !fixed.includes(r));
+
+  async function remove(ids: number[]) {
+    setBusy(true);
+    setError("");
+    const { error } = await supabase.from("unrecognized_inputs").delete().in("id", ids);
+    if (error) setError(error.message);
+    setBusy(false);
+    load();
+  }
 
   return (
     <section className="space-y-3">
       <h2 className="text-xl font-semibold">Unrecognized messages</h2>
       <p className="text-sm text-neutral-500">
-        What students typed that the scenario engine didn&apos;t understand. Add the missing words to{" "}
-        <code>web/src/engine/lexicon.ts</code>.
+        What students typed that the scenario engine didn&apos;t understand. Messages it understands now are hidden.
       </p>
-      {rows.length === 0 ? (
-        <p className="text-sm text-neutral-500">Nothing yet.</p>
+      {fixed.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-800">
+          <span>✓ {fixed.length} of these are understood now.</span>
+          <button className="btn-ghost text-sm" disabled={busy} onClick={() => remove(fixed.map((r) => r.id))}>
+            {busy ? "Removing…" : "Remove them"}
+          </button>
+          {error && <span className="text-red-600">{error}</span>}
+        </div>
+      )}
+      {!content && rows.length > 0 && <p className="text-sm text-neutral-500">Checking against the current engine…</p>}
+      {still.length === 0 ? (
+        <p className="text-sm text-neutral-500">{rows.length ? "Everything logged is understood now." : "Nothing yet."}</p>
       ) : (
         <ul className="divide-y divide-neutral-200 rounded border border-neutral-200 text-sm dark:divide-neutral-800 dark:border-neutral-800">
-          {rows.map((r) => (
+          {still.map((r) => (
             <li key={r.id} className="flex justify-between gap-4 px-3 py-2">
               <span dir="auto">{r.text}</span>
-              <span className="shrink-0 text-neutral-500">
+              <span className="flex shrink-0 items-center gap-3 text-neutral-500">
                 {r.scenario} · {new Date(r.created_at).toLocaleDateString("en-GB")}
+                {/* For typos nobody could guess — dismiss without teaching the engine anything. */}
+                <button className="hover:text-red-500" title="Dismiss" aria-label="Dismiss" disabled={busy} onClick={() => remove([r.id])}>
+                  ✕
+                </button>
               </span>
             </li>
           ))}
         </ul>
       )}
+      {error && fixed.length === 0 && <p className="text-sm text-red-600">{error}</p>}
     </section>
   );
 }

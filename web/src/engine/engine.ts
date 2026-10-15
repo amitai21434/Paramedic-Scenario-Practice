@@ -4,8 +4,8 @@
 
 import { convert, splitUnit, unitLabel } from "./dose";
 import { generate, resolve, rng, roll } from "./generate";
-import { ACTIONS, DRUGS, ROUTE_LABELS } from "./lexicon";
-import { notCarried, parse, type ParsedItem } from "./parse";
+import { ACTIONS, DRUGS, RHYTHM_NAMES, ROUTE_LABELS } from "./lexicon";
+import { notCarried, parse, tokenize, type ParsedItem } from "./parse";
 import { consciousnessText, current, effectiveVitals, finding, hasPulse, isShockable, minSbp, RHYTHMS, snapshot, stateDef } from "./physiology";
 import type {
   AnswerKey,
@@ -143,6 +143,21 @@ class Output {
   }
 }
 
+/** Every diagnosis and rhythm name in the content, for messages that only name one ("בצקת ריאות"). */
+const DX_NAMES = new WeakMap<Content, Set<string>>();
+function isDiagnosisName(content: Content, text: string): boolean {
+  let names = DX_NAMES.get(content);
+  if (!names) {
+    names = new Set<string>();
+    for (const c of content.cases) for (const v of [c, ...(c.variants ?? [])]) for (const d of v.diagnoses ?? []) for (const w of d.words) names.add(tokenize(w).join(" "));
+    for (const r of Object.values(RHYTHM_NAMES)) for (const w of r.words) names.add(tokenize(w).join(" "));
+    names.delete("");
+    for (const a of ACTIONS) for (const w of a.words) names.delete(tokenize(w).join(" "));
+    DX_NAMES.set(content, names);
+  }
+  return names.has(tokenize(text.replace(/[?!.]/g, "")).join(" "));
+}
+
 export type StepResult = { sim: Sim; understood: boolean };
 
 export function step(content: Content, prev: Sim, text: string): StepResult {
@@ -152,7 +167,7 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
 
   const out = new Output();
   const t0 = sim.t;
-  const parsed = parse(text);
+  const parsed = isDiagnosisName(content, text) ? { ...parse(""), statements: [text.trim()] } : parse(text);
   let items: ParsedItem[] = parsed.items;
 
   // Diagnoses are recorded without comment — the examiner doesn't say if they're right.
@@ -164,15 +179,24 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
     return { sim, understood: true };
   }
 
+  // "באיזה מינון?" → "1-2 מג לקג": a range isn't a dose — ask for one number, keep the question open.
+  if (!items.length && sim.pending && /\d\s*[-–]\s*\d/.test(text)) {
+    out.text("איזה מינון בדיוק? (מספר אחד)");
+    out.flush(sim);
+    return { sim, understood: true };
+  }
   // "באיזה מינון?" → "300 מג"
   if (!items.length && sim.pending && parsed.bare) {
     const p = sim.pending;
     items =
       p.need === "dose" && p.drug
-        ? [{ kind: "drug", drug: p.drug, value: parsed.bare.value, unit: parsed.bare.unit, route: null, phrase: "" }]
+        ? [{ kind: "drug", drug: p.drug, value: parsed.bare.value, unit: parsed.bare.unit, route: parsed.bare.route ?? null, phrase: "" }]
         : [{ kind: "action", id: p.action, joules: parsed.bare.value, phrase: "" }];
   }
-  sim.pending = null;
+  // An open question ("באיזה מינון?") stays open until something is understood.
+  // (also across plain questions: "פוסיד" → "משקל?" → "1 מג לקג")
+  const keepPending = (!items.length && !parsed.statements.length) || (items.length > 0 && items.every((it) => it.kind === "action" && it.id.startsWith("ask")));
+  if (!keepPending) sim.pending = null;
 
   // Drugs that aren't carried are named honestly, and the rest of the message still runs.
   const missing = notCarried(text);
@@ -190,6 +214,11 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
     return { sim, understood: true };
   }
 
+  if (!items.length && /^\s*\S?\s*(אינהלציה|אינהלציות|נבולייזר|נבולייזר)\s*\??\s*$/.test(text)) {
+    out.text("אינהלציה של איזו תרופה ובאיזה מינון?");
+    out.flush(sim);
+    return { sim, understood: true };
+  }
   if (!items.length) {
     out.text(
       parsed.negated.length
@@ -260,6 +289,8 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
     if (sim.ended) break;
   }
   // A team works in parallel: a turn takes about as long as its longest task.
+  // After checking a drug's contraindications, a bare dose next gives it ("קונטרה אינדיקציות לניטרט" → "0.4 מג").
+  if (parsed.contra?.length && !items.some((it) => it.kind === "drug")) sim.pending = { action: "drug", drug: parsed.contra[0], need: "dose" };
   if (!sim.ended) advance(content, sim, longest + 5 * (expanded.length - 1), out);
   if (sim.comp && sim.comp.resolvedAt === null) sim.comp.turns = (sim.comp.turns ?? 0) + 1;
   logTrend(sim, t0);
@@ -590,13 +621,16 @@ function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiv
     // Prefer the form for this route: adrenaline 0.5 mg is right IM but wrong IV (10–20 mcg).
     const comparable = forms.filter((f) => convert(g.value!, g.unit!, f.unit, sim.case.weight) !== null);
     const forRoute = forms.filter((f) => g.route && f.routes?.includes(g.route));
-    const form = forRoute.length ? forRoute.find((f) => comparable.includes(f)) : comparable[0];
+    // ...and the form written the same way: "15 mg/kg" is checked against the per-kg dose, not the adult 1 g.
+    const givenPerKg = splitUnit(g.unit).perKg;
+    const sameKind = (fs: typeof forms) => fs.find((f) => splitUnit(f.unit).perKg === givenPerKg) ?? fs[0];
+    const form = forRoute.length ? sameKind(forRoute.filter((f) => comparable.includes(f))) : sameKind(comparable);
     if (!form) {
       feedback(sim, "warn", `${shown}: לא ניתן לבדוק את המינון ביחידות שנכתבו (הפרוטוקול: ${forms.map(describe).join(" או ")}).`);
     } else {
       let v = convert(g.value, g.unit, form.unit, sim.case.weight)!;
       let [lo, hi] = form.dose;
-      if (form.cap !== undefined && splitUnit(form.unit).perKg) {
+      if (form.cap !== undefined && splitUnit(form.unit).perKg && !givenPerKg) {
         // Compare whole doses: a heavy child gets the capped dose, not the per-kg dose.
         const w = sim.case.weight;
         v *= w;
@@ -692,6 +726,8 @@ function answer(sim: Sim, key: AnswerKey): string {
       return "לא, רק מה שאמרתי.";
     case "events":
       return "לא עשיתי שום דבר מיוחד.";
+    case "pain":
+      return c.station === "טראומה" ? "כואב לי מאוד... 8 מתוך 10." : "לא כואב לי במיוחד.";
     case "pregnant":
       if (c.sex !== "f" || c.age < 12 || c.age > 55) return "לא.";
       return t.id === "obstetric" ? "כן." : "לא, אני לא בהריון.";
@@ -720,6 +756,15 @@ function logTrend(sim: Sim, t0: number) {
     add(sim.measured.dbp?.t ?? sim.measured.sbp.t, "dbp", sim.measured.dbp?.value);
   }
 }
+
+/** Body regions whose finding shows external bleeding (for the bleeding check and for stopping a bleed). */
+function externalBleeding(sim: Sim): [FindingKey, string][] {
+  const where: [FindingKey, string][] = [["limbs", "גפיים"], ["head", "ראש ופנים"], ["neck", "צוואר"], ["chest", "בית החזה"], ["abdomen", "בטן"], ["pelvis", "אגן"], ["back", "גב"]];
+  return where.filter(([k]) => /דימום|מדמם|מדממת/.test(finding(sim, k)) && !/ללא דימום|אין דימום/.test(finding(sim, k)));
+}
+
+/** States where the patient has clearly improved — "how do you feel?" gets an honest answer. */
+const IMPROVED = new Set(["better", "treated", "awake", "cleared", "controlled", "relieved", "sinus", "stable", "recovered", "resolved", "calm", "cooled", "warmer", "atropinized", "paced", "antidote"]);
 
 const vaginalCase = (sim: Sim) => Object.values(sim.case.template.states).some((s) => s.findings?.vaginal !== undefined);
 
@@ -787,6 +832,9 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     const bystanderLine = raw.startsWith("@");
     const fromBystander = () => say(`${c.bystander}: "${text}"`);
     if (c.bystander && BYSTANDER_KEYS.includes(q) && (bystanderLine || def.confused)) return fromBystander();
+    if (q === "complaint" && IMPROVED.has(sim.state) && !current(sim).answers?.complaint && canTalk(sim)) {
+      return say('[[המטופל|המטופלת]]: "אני [[מרגיש|מרגישה]] יותר טוב עכשיו."');
+    }
     if (canTalk(sim)) return say(`[[המטופל|המטופלת]]: "${text}"`);
     // A drowsy patient who still talks says their own complaint ("אני... לא... מצליחה לנשום").
     if (q === "complaint" && !bystanderLine && pulse && (v.gcs ?? 15) >= 9 && !flags.has("intubated")) return say(`[[המטופל|המטופלת]]: "${text}"`);
@@ -873,15 +921,17 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       setFlag(sim, "o2");
       // Oxygen said with the bag ("מנשים במפוח עם חמצן"), or while bagging, goes to the bag, not a mask.
       if (!/מסכ|משקפ|ריזרבואר|nrb|rebreather/.test(item.phrase) && (item.withBag || flags.has("bvm"))) return say("חמצן מחובר למפוח.");
-      return say(item.phrase.includes("משקפ") ? "חמצן במשקפיים — מחובר." : "חמצן במסכה — מחובר.");
+      return say(/משקפ|קנולה|קנולת/.test(item.phrase) ? "חמצן במשקפיים — מחובר." : "חמצן במסכה — מחובר.");
     case "bleedCheck": {
       record();
       // A quick look over the body for external bleeding; finding it on a limb counts as looking at the limbs.
-      const where: [FindingKey, string][] = [["limbs", "גפיים"], ["head", "ראש ופנים"], ["neck", "צוואר"], ["chest", "בית החזה"], ["abdomen", "בטן"], ["pelvis", "אגן"], ["back", "גב"]];
-      const found = where.filter(([k]) => /דימום|מדמם|מדממת/.test(finding(sim, k)) && !/ללא דימום|אין דימום/.test(finding(sim, k)));
+      const found = externalBleeding(sim);
       if (found.some(([k]) => k === "limbs")) sim.actions.push({ action: "limbs", t: sim.t, state: sim.state });
       return say(found.length ? found.map(([k, l]) => `${l}: ${finding(sim, k)}`).join("\n") : "אין דימום פורץ חיצוני.");
     }
+    case "sceneAccess":
+      record();
+      return say("יש גישה לאמבולנס עד המטופל.");
     case "askHospital": {
       record();
       // Fixed per run, so asking twice gives the same answer.
@@ -980,6 +1030,10 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say("העיסויים הופסקו.");
     case "shock": {
       if (!flags.has("monitor")) return say("מדבקות הדפיברילציה אינן מחוברות.");
+      if (item.joules === undefined && c.age < 16) {
+        sim.pending = { action: "shock", need: "joules" };
+        return say("באיזו אנרגיה?");
+      }
       const joules = item.joules ?? 200;
       record({ joules });
       if (pulse) feedback(sim, "error", "שוק לא מסונכרן למטופל עם דופק.");
@@ -1037,6 +1091,10 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say(canTalk(sim) || (v.gcs ?? 15) >= 13 ? "[[המטופל|המטופלת]] [[משתעל|משתעלת]] בכוח." : "[[המטופל|המטופלת]] לא [[מסוגל|מסוגלת]] להשתעל.");
     case "tourniquet":
     case "pressure":
+      if (!externalBleeding(sim).length) return say("אין דימום פורץ חיצוני לעצור.");
+      record();
+      setFlag(sim, id);
+      return say(`${actionDef(id).label} — בוצע.`);
     case "pelvicBinder":
     case "chestSeal":
     case "splint":
@@ -1071,6 +1129,8 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "pushCordBack":
     case "pullBaby":
     case "faceSpace":
+    case "helmet":
+    case "dressing":
     case "protect":
     case "eyeWash":
     case "reassure":
