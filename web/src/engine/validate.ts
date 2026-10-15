@@ -52,7 +52,8 @@ function checkTemplate(t: CaseTemplate, where: string, problems: string[], comps
     if ("any" in c) return c.any.forEach((x) => cond(x, ctx));
     if ("not" in c) return cond(c.not, ctx);
     if ("done" in c) {
-      if (!ACTION_IDS.has(c.done)) p(`${ctx}: unknown action "${c.done}"`);
+      // "intubationFailed": failed attempts of an action that can fail (actions.<id>.fails).
+      if (!ACTION_IDS.has(c.done) && !(c.done.endsWith("Failed") && ACTION_IDS.has(c.done.slice(0, -6)))) p(`${ctx}: unknown action "${c.done}"`);
       num(c.min, ctx);
     } else if ("drug" in c) {
       if (!DRUG_IDS.has(c.drug)) p(`${ctx}: unknown drug "${c.drug}"`);

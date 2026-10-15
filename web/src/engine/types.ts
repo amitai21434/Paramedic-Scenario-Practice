@@ -56,6 +56,7 @@ export type FindingKey =
   | "burns";
 
 export type AnswerKey =
+  | "dnr"
   | "pregnant"
   | "weight"
   | "complaint"
@@ -232,7 +233,11 @@ export type CaseTemplate = {
   rules?: Rule[];
   drugs?: Record<string, DrugRule>;
   /** Checks when an action is performed, e.g. { transport: { before: [{ when: { vital: "temp", lt: 39 }, why: "…" }] } }. */
-  actions?: Record<string, { before?: { when: Cond; why: string }[]; wrong?: string }>;
+  /** before: must already hold (else an error); wrong: always an error; fails: the attempt doesn't work
+   *  (this reply instead — e.g. a difficult intubation), counted, an error past maxAttempts. */
+  actions?: Record<string, { before?: { when: Cond; why: string }[]; wrong?: string; fails?: string; maxAttempts?: number }>;
+  /** The patient refuses transport: "פינוי" gets this reply until `until` holds (e.g. the doctor's authorisation). */
+  refusal?: { until?: Cond; say: string; signed?: string; doctor?: string };
   checklist: ChecklistItem[];
   /** What the student could name (shown in the debrief; never counted as a mistake). */
   diagnoses?: Diagnosis[];

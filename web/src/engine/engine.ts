@@ -191,7 +191,7 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
     items =
       p.need === "dose" && p.drug
         ? [{ kind: "drug", drug: p.drug, value: parsed.bare.value, unit: parsed.bare.unit, route: parsed.bare.route ?? null, phrase: "" }]
-        : [{ kind: "action", id: p.action, joules: parsed.bare.value, phrase: "" }];
+        : [{ kind: "action", id: p.action, joules: parsed.bare.value, joulesPerKg: !!parsed.bare.unit?.endsWith("/kg"), phrase: "" }];
   }
   // An open question ("באיזה מינון?") stays open until something is understood.
   // (also across plain questions: "פוסיד" → "משקל?" → "1 מג לקג")
@@ -620,7 +620,7 @@ function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiv
       (forms.length > 1 && f.routes?.length ? ` (${f.routes.map((r) => ROUTE_LABELS[r] ?? r).join("/")})` : "");
     // Prefer the form for this route: adrenaline 0.5 mg is right IM but wrong IV (10–20 mcg).
     const comparable = forms.filter((f) => convert(g.value!, g.unit!, f.unit, sim.case.weight) !== null);
-    const forRoute = forms.filter((f) => g.route && f.routes?.includes(g.route));
+    const forRoute = forms.filter((f) => g.route && routeAllowed(f.routes ?? [], g.route));
     // ...and the form written the same way: "15 mg/kg" is checked against the per-kg dose, not the adult 1 g.
     const givenPerKg = splitUnit(g.unit).perKg;
     const sameKind = (fs: typeof forms) => fs.find((f) => splitUnit(f.unit).perKg === givenPerKg) ?? fs[0];
@@ -651,7 +651,7 @@ function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiv
     }
   }
   const routes = [...(rule?.routes ?? []), ...(rule?.alts ?? []).flatMap((a) => a.routes ?? [])];
-  if (routes.length && g.route && !routes.includes(g.route)) {
+  if (routes.length && g.route && !routeAllowed(routes, g.route)) {
     g.wrong = true;
     feedback(sim, "error", `${shown}: דרך מתן שגויה (לפי הפרוטוקול: ${[...new Set(routes)].map((r) => ROUTE_LABELS[r] ?? r).join(" / ")}).`);
   }
@@ -700,9 +700,10 @@ const QUESTIONS: Partial<Record<string, AnswerKey>> = {
   askSymptoms: "symptoms",
   askPregnant: "pregnant",
   askWeight: "weight",
+  askDnr: "dnr",
 };
 /** What a bystander can answer for an unresponsive patient. */
-const BYSTANDER_KEYS: AnswerKey[] = ["pregnant", "weight", "complaint", "onset", "history", "meds", "allergies", "events", "previous", "pde5", "lastMeal"];
+const BYSTANDER_KEYS: AnswerKey[] = ["dnr", "pregnant", "weight", "complaint", "onset", "history", "meds", "allergies", "events", "previous", "pde5", "lastMeal"];
 
 function answer(sim: Sim, key: AnswerKey): string {
   const c = sim.case;
@@ -728,6 +729,8 @@ function answer(sim: Sim, key: AnswerKey): string {
       return "לא עשיתי שום דבר מיוחד.";
     case "pain":
       return c.station === "טראומה" ? "כואב לי מאוד... 8 מתוך 10." : "לא כואב לי במיוחד.";
+    case "dnr":
+      return "@לא, אין שום מסמך כזה.";
     case "pregnant":
       if (c.sex !== "f" || c.age < 12 || c.age > 55) return "לא.";
       return t.id === "obstetric" ? "כן." : "לא, אני לא בהריון.";
@@ -756,6 +759,9 @@ function logTrend(sim: Sim, t0: number) {
     add(sim.measured.dbp?.t ?? sim.measured.sbp.t, "dbp", sim.measured.dbp?.value);
   }
 }
+
+/** IO goes wherever IV goes (the protocols treat them alike). */
+const routeAllowed = (routes: string[], route: string) => routes.includes(route) || (route === "io" && routes.includes("iv"));
 
 /** Body regions whose finding shows external bleeding (for the bleeding check and for stopping a bleed). */
 function externalBleeding(sim: Sim): [FindingKey, string][] {
@@ -816,6 +822,13 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     if (!evalCond(content, sim, b.when)) feedback(sim, "error", `${actionDef(id).label}: ${b.why}`);
   }
   if (actionRule?.wrong) feedback(sim, "error", `${actionDef(id).label}: ${actionRule.wrong}`);
+  if (actionRule?.fails) {
+    // An attempt that doesn't work (a difficult intubation): counted separately, so it never ticks the step.
+    sim.actions.push({ action: `${id}Failed`, t: sim.t, state: sim.state });
+    const tries = sim.actions.filter((a) => a.action === `${id}Failed`).length;
+    if (actionRule.maxAttempts && tries === actionRule.maxAttempts + 1) feedback(sim, "error", `${actionDef(id).label}: יותר מ־${actionRule.maxAttempts} ניסיונות.`);
+    return say(actionRule.fails);
+  }
 
   const f = FINDING_ACTIONS[id];
   if (f) {
@@ -929,6 +942,29 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       if (found.some(([k]) => k === "limbs")) sim.actions.push({ action: "limbs", t: sim.t, state: sim.state });
       return say(found.length ? found.map(([k, l]) => `${l}: ${finding(sim, k)}`).join("\n") : "אין דימום פורץ חיצוני.");
     }
+    case "consultDoc":
+      record();
+      return say(c.template.refusal?.doctor ?? `${actionDef(id).label} — בוצע.`);
+    case "identifyDeceased":
+      record();
+      return say("הנפטר[[|ת]] [[זוהה|זוהתה]] לפי תעודת זהות שהציגה המשפחה.");
+    case "declareDeath":
+      record();
+      if (hasPulse(current(sim))) {
+        feedback(sim, "error", "קביעת מוות למטופל עם דופק.");
+        return say("[[למטופל|למטופלת]] יש דופק.");
+      }
+      return say("המוות נקבע. הודעת הפטירה מולאה ונחתמה.");
+    case "explainRisks":
+      record();
+      return say(c.template.refusal ? "[[המטופל|המטופלת]] [[מקשיב|מקשיבה]] להסבר על הסכנות שבסירוב." : "[[המטופל|המטופלת]] [[מקשיב|מקשיבה]] להסבר.");
+    case "refusalForm":
+      record();
+      if (!c.template.refusal) return say("[[המטופל|המטופלת]] לא [[מסרב|מסרבת]] לטיפול או לפינוי.");
+      return say(c.template.refusal.signed ?? "[[המטופל|המטופלת]] [[חתם|חתמה]] על טופס הסירוב.");
+    case "reportDispatch":
+      record();
+      return say("המוקד המרחבי קיבל את הדיווח.");
     case "sceneAccess":
       record();
       return say("יש גישה לאמבולנס עד המטופל.");
@@ -1029,6 +1065,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       if (!pulse) feedback(sim, "warn", "הפסקת עיסויים בזמן שאין דופק.");
       return say("העיסויים הופסקו.");
     case "shock": {
+      if (item.joulesPerKg && item.joules !== undefined) item.joules = Math.round(item.joules * c.weight);
       if (!flags.has("monitor")) return say("מדבקות הדפיברילציה אינן מחוברות.");
       if (item.joules === undefined && c.age < 16) {
         sim.pending = { action: "shock", need: "joules" };
@@ -1041,6 +1078,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say(`⚡ שוק ${joules}J`);
     }
     case "sync": {
+      if (item.joulesPerKg && item.joules !== undefined) item.joules = Math.round(item.joules * c.weight);
       if (!flags.has("monitor")) return say("מדבקות הדפיברילציה אינן מחוברות.");
       if (item.joules === undefined) {
         sim.pending = { action: "sync", need: "joules" };
@@ -1135,7 +1173,6 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
     case "eyeWash":
     case "reassure":
     case "restrain":
-    case "consultDoc":
     case "abdThrusts":
     case "backBlows":
     case "magill":
@@ -1150,6 +1187,10 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say("הקרדיולוג התורן קיבל את הדיווח ואת האק\"ג.");
     case "transport":
       if (sim.transportAt !== null) return say("אתם כבר בדרך לבית החולים.");
+      if (c.template.refusal && !(c.template.refusal.until && evalCond(content, sim, c.template.refusal.until))) {
+        sim.actions.push({ action: "transportRefused", t: sim.t, state: sim.state });
+        return say(c.template.refusal.say);
+      }
       record();
       sim.transportAt = sim.t;
       setFlag(sim, "transport");

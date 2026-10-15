@@ -99,7 +99,8 @@ function styled(s: Script, withTypos: boolean, k: number): string[] {
       i++;
       continue;
     }
-    const take = r() < 0.5 && i + 1 < s.lines.length && !SOLO(s.lines[i + 1]) ? 2 : 1;
+    // (never two identical lines — nobody writes "אינטובציה, ואינטובציה" in one message)
+    const take = r() < 0.5 && i + 1 < s.lines.length && !SOLO(s.lines[i + 1]) && s.lines[i + 1] !== l ? 2 : 1;
     const parts = s.lines.slice(i, i + take).map((x) => styleLine(x, r));
     let msg = parts[0];
     for (const p of parts.slice(1)) msg += (r() < 0.5 ? ", " : " ") + (p.startsWith("אני ") ? `ואני ${p.slice(4)}` : `ו${p}`);

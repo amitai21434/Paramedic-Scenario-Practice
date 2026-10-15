@@ -7,7 +7,7 @@
 import { ACTIONS, ASK_OR_EXAM, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
 
 export type ParsedItem =
-  | { kind: "action"; id: string; joules?: number; phrase: string; withBag?: boolean }
+  | { kind: "action"; id: string; joules?: number; joulesPerKg?: boolean; phrase: string; withBag?: boolean }
   | { kind: "drug"; drug: string; value: number | null; unit: string | null; route: string | null; phrase: string; conc?: number };
 
 export type Parsed = {
@@ -86,14 +86,19 @@ function distance(a: string, b: string, max: number): number {
 // Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
 const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת", "ריאות", "לריאות", "מוצץ", "מוצצת", "מציצה", "מגיב", "מגיבה", "אוושה", "אוושות", "אקמול", "ימניים", "ימנים", "עיניים", "עינים", "פינוי", "שינוי", "קיבוע"].map(normalize));
 
+/** Exact only, not even a sound-alike swap: "אוושה" is one swap from "עושה" (doing). */
+const STRICT = new Set(["אוושה", "אוושות"].map(normalize));
+
 /** 0 = exact, 0.5 = sound-alike letter swap, 1 = other typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
   const vs = variants(input);
   if (vs.includes(word)) return 0;
-  if (/^\d/.test(word) || NO_TYPO.has(word)) return -1;
-  // A sound-alike letter swap ("שליין", "דיווכ", "משקיבה") is the likeliest typo; short words ("סלין",
+  if (/^\d/.test(word) || STRICT.has(word)) return -1;
+  // A sound-alike letter swap ("שליין", "דיווכ", "משקיבה", "עקמול") is the likeliest typo — allowed even for
+  // the protected words below, whose danger is a near-miss with a *different* word; short words ("סלין",
   // "דיוח" after normalizing) accept only that.
   if (word.length >= 4 && vs.some((v) => soundAlike(v, word))) return 0.5;
+  if (NO_TYPO.has(word)) return -1;
   if (word.length < 5) return -1;
   const max = word.length >= 9 ? 2 : 1;
   return vs.some((v) => v.length >= 4 && distance(v, word, max) <= max) ? 1 : -1;
@@ -165,8 +170,14 @@ function bestAt(tokens: string[], used: boolean[], i: number, phrases: Phrase[],
         ok = false;
         break;
       }
-      // Short words (route/unit abbreviations) must match exactly.
-      const m = exactOnly ? (variants(tokens[i + k]).includes(phrase.tokens[k]) ? 0 : -1) : tokenMatch(tokens[i + k], phrase.tokens[k]);
+      // Short words (route/unit abbreviations) must match exactly — or by a sound-alike swap ("בתפטוף").
+      const m = exactOnly
+        ? variants(tokens[i + k]).includes(phrase.tokens[k])
+          ? 0
+          : phrase.tokens[k].length >= 4 && variants(tokens[i + k]).some((v) => soundAlike(v, phrase.tokens[k]))
+            ? 0.5
+            : -1
+        : tokenMatch(tokens[i + k], phrase.tokens[k]);
       if (m < 0) {
         ok = false;
         break;
@@ -616,8 +627,10 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       // Energy right after ("שוק 200") or right before ("200 גאול שוק").
       for (const j of [m.end, m.end + 1, m.start - 2, m.start - 1]) {
         const q = j >= 0 ? readQuantity(tokens, used, j) : null;
-        if (q && (q.unit === null || q.unit === "J")) {
+        if (q && (q.unit === null || q.unit === "J" || q.unit === "J/kg" || q.unit === "/kg")) {
           item.joules = q.value;
+          // "1 ג'אול לקג": a child's energy said per kilo
+          if (q.unit?.endsWith("/kg")) item.joulesPerKg = true;
           mark(j, q.end);
           break;
         }
