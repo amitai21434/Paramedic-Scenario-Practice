@@ -69,7 +69,8 @@ export type AnswerKey =
   | "events"
   | "pde5"
   | "previous"
-  | "symptoms";
+  | "symptoms"
+  | "age";
 
 /** Text that may differ by the patient's sex/facts. "[[m|f]]" inside a string is also resolved by sex. */
 export type Text = string | { if: string; then: string; else: string };
@@ -384,6 +385,8 @@ export type Sim = {
   stateSince: number;
   vitals: Vitals;
   flags: string[];
+  /** Drugs drawn up with their dose ("שאיבת קטמין 100 מג"), given on "הזרקת התרופות" or when named again. */
+  prepared?: { drug: string; value: number | null; unit: string | null; route: string | null }[];
   /** When each active flag was switched on. */
   flagSince: Record<string, number>;
   actions: ActionRecord[];
@@ -397,7 +400,7 @@ export type Sim = {
   /** Seconds without a pulse and without CPR. */
   noFlow: number;
   /** The engine asked for a missing detail (e.g. a dose); the next message may answer it. */
-  pending: { action: string; drug?: string; need: "dose" | "joules" } | null;
+  pending: { action: string; drug?: string; need: "dose" | "joules"; route?: string | null } | null;
   messages: Message[];
   /** States entered so far, in order. */
   visited: string[];

@@ -3,9 +3,9 @@
 // records feedback for the debrief. Pure functions over a JSON Sim.
 
 import { convert, splitUnit, unitLabel } from "./dose";
-import { generate, resolve, rng, roll } from "./generate";
-import { ACTIONS, DRUGS, RHYTHM_NAMES, ROUTE_LABELS } from "./lexicon";
-import { notCarried, parse, tokenize, type ParsedItem } from "./parse";
+import { ageText, generate, resolve, rng, roll } from "./generate";
+import { ACTIONS, ASK_OR_EXAM, DRUGS, RHYTHM_NAMES, ROUTE_LABELS } from "./lexicon";
+import { isExactAction, namesExactly, notCarried, parse, tokenize, type ParsedItem } from "./parse";
 import { consciousnessText, current, effectiveVitals, finding, hasPulse, isShockable, minSbp, RHYTHMS, snapshot, stateDef } from "./physiology";
 import type {
   AnswerKey,
@@ -147,20 +147,29 @@ class Output {
   }
 }
 
-/** Every diagnosis and rhythm name in the content, for messages that only name one ("בצקת ריאות"). */
-const DX_NAMES = new WeakMap<Content, Set<string>>();
+/** Readings a student states that aren't a storyline's diagnosis ("ROSC", "חסימת הולכה"). */
+const EXTRA_DX = ["rosc", "פגיעת מעיכה", "תסמונת מעיכה", "מעיכה", "חזרה לדופק", "מטופל חדש", "חסימת הולכה", "פרפור איטי", "טכיקרדיה צרת קומפלקס", "טכיקרדיה רחבת קומפלקס", "טכיקרדיה צרה", "טכיקרדיה רחבה", "אנפילקסיס", "אנאפילקסיס", "אורטיקריה", "אוטם", "אוטם תחתון ימני", "אוטם תחתון", "אוטם קדמי", "אסתמה", "התקף אסתמה", "הלם"];
+
+/** Every diagnosis and rhythm name in the content, for messages that only name one ("בצקת ריאות",
+ *  "אסטמה קשה" — typos and a grade after the name forgiven). */
+const DX_NAMES = new WeakMap<Content, string[]>();
 function isDiagnosisName(content: Content, text: string): boolean {
   let names = DX_NAMES.get(content);
   if (!names) {
-    names = new Set<string>();
-    for (const c of content.cases) for (const v of [c, ...(c.variants ?? [])]) for (const d of v.diagnoses ?? []) for (const w of d.words) names.add(tokenize(w).join(" "));
-    for (const r of Object.values(RHYTHM_NAMES)) for (const w of r.words) names.add(tokenize(w).join(" "));
-    names.delete("");
-    for (const a of ACTIONS) for (const w of a.words) names.delete(tokenize(w).join(" "));
+    const set = new Set<string>(EXTRA_DX.map((w) => tokenize(w).join(" ")));
+    for (const c of content.cases) for (const v of [c, ...(c.variants ?? [])]) for (const d of v.diagnoses ?? []) for (const w of d.words) set.add(tokenize(w).join(" "));
+    for (const r of Object.values(RHYTHM_NAMES)) for (const w of r.words) set.add(tokenize(w).join(" "));
+    set.delete("");
+    for (const a of ACTIONS) for (const w of a.words) set.delete(tokenize(w).join(" "));
+    names = [...set];
     DX_NAMES.set(content, names);
   }
-  return names.has(tokenize(text.replace(/[?!.]/g, "")).join(" "));
+  const t = text.replace(/[?!.]/g, "");
+  return !isExactAction(t) && names.some((n) => namesExactly(t, n));
 }
+
+/** Acknowledgements ("מעולה", "אוקיי ביי"). */
+const ACK = new Set(["מעולה", "מושלם", "אוקיי", "אוקי", "אוקיי ביי", "ok", "okay", "תודה", "תודה רבה", "יופי", "סבבה", "טוב", "נהדר", "מצוין", "אחלה", "הבנתי", "בסדר"].map((w) => tokenize(w).join(" ")));
 
 export type StepResult = { sim: Sim; understood: boolean };
 
@@ -194,12 +203,21 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
     const p = sim.pending;
     items =
       p.need === "dose" && p.drug
-        ? [{ kind: "drug", drug: p.drug, value: parsed.bare.value, unit: parsed.bare.unit, route: parsed.bare.route ?? null, phrase: "" }]
+        ? [{ kind: "drug", drug: p.drug, value: parsed.bare.value, unit: parsed.bare.unit, route: parsed.bare.route ?? p.route ?? null, phrase: "" }]
         : [{ kind: "action", id: p.action, joules: parsed.bare.value, joulesPerKg: !!parsed.bare.unit?.endsWith("/kg"), phrase: "" }];
+  }
+  // "חוזרת על האינהלציה", "אינהלציה חוזרת": the last inhaled drugs again, same doses.
+  if (/(חוזר|חוזרת|חוזרים)\s+על\s+ה?(אינהלציה|אינהלציות|נבולייזר)|(עוד|שוב)\s+(אינהלציה|נבולייזר)|אינהלציה\s+(נוספת|חוזרת)/.test(text) && !items.some((it) => it.kind === "drug" && it.route === "neb")) {
+    const nebs = sim.actions.filter((a) => a.drug && a.drug.route === "neb");
+    const lastT = nebs.at(-1)?.t;
+    for (const a of nebs.filter((a) => a.t === lastT)) {
+      items.push({ kind: "drug", drug: a.drug!.drug, value: a.drug!.value, unit: a.drug!.unit, route: "neb", phrase: "" });
+    }
   }
   // An open question ("באיזה מינון?") stays open until something is understood.
   // (also across plain questions: "פוסיד" → "משקל?" → "1 מג לקג")
-  const keepPending = (!items.length && !parsed.statements.length) || (items.length > 0 && items.every((it) => it.kind === "action" && it.id.startsWith("ask")));
+  // (and across a look or a consultation: "לבטלול" → "מוקד רפואי" → "20 מג")
+  const keepPending = (!items.length && !parsed.statements.length) || (items.length > 0 && items.every((it) => it.kind === "action" && (ASK_OR_EXAM.has(it.id) || it.id === "consultDoc")));
   if (!keepPending) sim.pending = null;
 
   // Drugs that aren't carried are named honestly, and the rest of the message still runs.
@@ -210,16 +228,33 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   if (plannedLabels.length) out.text(`📝 נרשם כתוכנית (לא בוצע): ${plannedLabels.join(", ")}.`);
   const lineOpening = items.some((it) => it.kind === "action" && (it.id === "iv" || it.id === "io"));
   if (parsed.flush) out.text(lineOpening || sim.flags.includes("iv") || sim.flags.includes("io") ? "הקו נשטף ועובד." : "אין גישה ורידית לשטוף.");
-  // Equipment got out or a drug drawn up, not used yet.
-  const ready = [...new Set(parsed.prepared)].map((k) => DRUGS.find((d) => d.id === k)?.name ?? actionDef(k).label);
+  // Equipment got out or a drug drawn up, not used yet — a drawn-up dose is kept for "הזרקת התרופות".
+  for (const p of parsed.preparedDrugs ?? []) sim.prepared = [...(sim.prepared ?? []).filter((x) => x.drug !== p.drug), p];
+  const ready = [...new Set(parsed.prepared)].map((k) => {
+    const p = parsed.preparedDrugs?.find((x) => x.drug === k && x.value !== null);
+    const name = DRUGS.find((d) => d.id === k)?.name ?? actionDef(k).label;
+    return p ? `${name} ${p.value} ${unitLabel(p.unit ?? drugDef(k).unit)}` : name;
+  });
   if (ready.length) out.text(`🧰 מוכן לשימוש: ${ready.join(", ")}.`);
-  if (!items.length && (missing.length || ready.length || plannedLabels.length || parsed.flush)) {
+  // "הפסק אמבו", "הפסקת הרטמן": stopped.
+  for (const k of new Set(parsed.stopped ?? [])) {
+    const drug = DRUGS.find((d) => d.id === k);
+    if (!drug) setFlag(sim, k, false);
+    out.text(`${drug?.name ?? actionDef(k).label} — הופסק.`);
+  }
+  if (!items.length && (missing.length || ready.length || plannedLabels.length || parsed.flush || parsed.stopped?.length)) {
     out.flush(sim, t0);
     return { sim, understood: true };
   }
 
   if (!items.length && /^\s*\S?\s*(אינהלציה|אינהלציות|נבולייזר|נבולייזר)\s*\??\s*$/.test(text)) {
     out.text("אינהלציה של איזו תרופה ובאיזה מינון?");
+    out.flush(sim);
+    return { sim, understood: true };
+  }
+  // "מעולה", "אוקיי": the student acknowledging a reply, not an order.
+  if (!items.length && ACK.has(tokenize(text).join(" "))) {
+    out.text("👍");
     out.flush(sim);
     return { sim, understood: true };
   }
@@ -235,6 +270,8 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
 
   // "בודק דימום" means the vaginal check only in a birth/pregnancy case; elsewhere it's a look for external bleeding.
   items = items.map((it) => (it.kind === "action" && it.id === "vaginal" && !vaginalCase(sim) && !/וגינ|נרתיק|פרינאום|תחבוש/.test(it.phrase) ? { ...it, id: "bleedCheck" } : it));
+  // ...and a bare "דימום" in a birth case is that check.
+  items = items.map((it) => (it.kind === "action" && it.id === "bleedCheck" && it.phrase === "דימום" && vaginalCase(sim) ? { ...it, id: "vaginal" } : it));
 
   // Drying and wrapping is the newborn manoeuvre only where there is a newborn; for anyone else it's warming.
   if (!JSON.stringify(sim.case.template).includes('"dryBaby"')) items = items.map((it) => (it.kind === "action" && it.id === "dryBaby" ? { ...it, id: "warm" } : it));
@@ -244,14 +281,6 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // "...תן סולומדרול, מבקשת לפתוח וריד": the line is opened before the drugs that need it.
   const lines = items.filter((it) => it.kind === "action" && (it.id === "iv" || it.id === "io"));
   if (lines.length && items.some((it) => it.kind === "drug")) items = [...lines, ...items.filter((it) => !lines.includes(it))];
-  // "חוזרת על האינהלציה": the last inhaled drugs again, same doses.
-  if (/(חוזר|חוזרת|חוזרים)\s+על\s+ה?(אינהלציה|אינהלציות|נבולייזר)|(עוד|שוב)\s+(אינהלציה|נבולייזר)|אינהלציה\s+(נוספת|חוזרת)/.test(text) && !items.some((it) => it.kind === "drug" && it.route === "neb")) {
-    const nebs = sim.actions.filter((a) => a.drug && a.drug.route === "neb");
-    const lastT = nebs.at(-1)?.t;
-    for (const a of nebs.filter((a) => a.t === lastT)) {
-      items.push({ kind: "drug", drug: a.drug!.drug, value: a.drug!.value, unit: a.drug!.unit, route: "neb", phrase: "" });
-    }
-  }
 
   // "משכיבה אותה על הצד" is the side position, not lying flat as well.
   if (items.some((it) => it.kind === "action" && it.id === "positionSide")) items = items.filter((it) => !(it.kind === "action" && it.id === "positionSupine"));
@@ -388,9 +417,13 @@ function compLanguage(sim: Sim, def: ComplicationDef): string {
   const langs = def.languages ?? [];
   return langs.length ? langs[sim.case.seed % langs.length] : "";
 }
+/** The bystander's own gender picks the verb ("בתו מדברת", "חבר מדבר") — not the patient's. */
+const FEMALE_BYSTANDER = /^(אמו|אמה|אשתו|בתו|בתה|חברה|סבתא|המטפלת|האם|בת|השכנה|אחותו|אחותה)(\s|$)/;
+const bystanderVerb = (sim: Sim, m: string, f: string) => (FEMALE_BYSTANDER.test(sim.case.bystander ?? "") ? f : m);
+
 /** Who can interpret: the person at the scene, or the phone interpreter through dispatch. */
 function interpreterHint(sim: Sim): string {
-  return sim.case.bystander ? `${sim.case.bystander} [[מדבר|מדברת]] עברית.` : "אין בזירה מי שמדבר עברית — אפשר להיעזר במתורגמן טלפוני דרך המוקד.";
+  return sim.case.bystander ? `${sim.case.bystander} ${bystanderVerb(sim, "מדבר", "מדברת")} עברית.` : "אין בזירה מי שמדבר עברית — אפשר להיעזר במתורגמן טלפוני דרך המוקד.";
 }
 
 function startComplication(content: Content, sim: Sim, id: string, out: Output) {
@@ -571,11 +604,21 @@ function giveDrug(content: Content, sim: Sim, item: Extract<ParsedItem, { kind: 
   const def = drugDef(item.drug);
   const rule = drugRule(content, sim, item.drug);
   // A bare number means the drug's usual unit: "קטמין 50" is 50 mg, but "דופמין 10" is 10 mcg/kg/min.
+  // A drug drawn up earlier ("שאיבת אדרנלין 1 מג") is given at that dose when named again ("הזרקת אדרנלין").
+  const drawn = sim.prepared?.find((p) => p.drug === item.drug);
+  if (drawn) {
+    sim.prepared = sim.prepared!.filter((p) => p !== drawn);
+    if (item.value === null && drawn.value !== null) {
+      item = { ...item, value: drawn.value, unit: drawn.unit, route: item.route ?? drawn.route };
+      out.text(`${def.name} ${drawn.value} ${unitLabel(drawn.unit ?? def.unit)} — המנה שהוכנה.`);
+    }
+  }
   const usual = rule?.unit ?? def.unit;
   const unit = item.unit ?? (usual.includes("/min") ? usual : usual.replace("/kg", ""));
 
   if (item.value === null) {
-    sim.pending = { action: "drug", drug: item.drug, need: "dose" };
+    // The route said with the drug ("דורמיקום לשריר") still holds when the dose comes alone ("10 מג").
+    sim.pending = { action: "drug", drug: item.drug, need: "dose", route: item.route };
     out.text(`${def.name} — באיזה מינון?`);
     return;
   }
@@ -626,7 +669,9 @@ function checkDrug(content: Content, sim: Sim, rule: DrugRule | null, g: DrugGiv
   if (g.drug !== "saline" && askable && !evalCond(content, sim, { done: "askAllergies" })) {
     feedback(sim, "warn", "ניתנה תרופה לפני ששאלת על רגישויות.");
   }
-  if (rule?.dose && rule.unit && g.value !== null && g.unit) {
+  // A drug this storyline doesn't use has no protocol dose to hold it to (the warning above says so):
+  // amiodarone's arrest dose says nothing about 100 mg in a child with a pulse.
+  if (rule?.status && rule.dose && rule.unit && g.value !== null && g.unit) {
     // Check against the first accepted form whose unit is comparable (dose vs. rate).
     const forms: { unit: string; dose: [number, number]; routes?: string[]; cap?: number }[] = [
       { unit: rule.unit, dose: rule.dose, routes: rule.routes, cap: rule.cap },
@@ -719,9 +764,10 @@ const QUESTIONS: Partial<Record<string, AnswerKey>> = {
   askPregnant: "pregnant",
   askWeight: "weight",
   askDnr: "dnr",
+  askAge: "age",
 };
 /** What a bystander can answer for an unresponsive patient. */
-const BYSTANDER_KEYS: AnswerKey[] = ["dnr", "pregnant", "weight", "complaint", "onset", "history", "meds", "allergies", "events", "previous", "pde5", "lastMeal"];
+const BYSTANDER_KEYS: AnswerKey[] = ["age", "symptoms", "dnr", "pregnant", "weight", "complaint", "onset", "history", "meds", "allergies", "events", "previous", "pde5", "lastMeal"];
 
 function answer(sim: Sim, key: AnswerKey): string {
   const c = sim.case;
@@ -752,6 +798,9 @@ function answer(sim: Sim, key: AnswerKey): string {
     case "pregnant":
       if (c.sex !== "f" || c.age < 12 || c.age > 55) return "לא.";
       return t.id === "obstetric" ? "כן." : "לא, אני לא בהריון.";
+    case "age":
+      // A child's age comes from the parent.
+      return c.age < 14 ? `@[[הוא|היא]] [[בן|בת]] ${ageText(c.age)}.` : `[[בן|בת]] ${ageText(c.age)}.`;
     case "weight":
       // A child's weight comes from the parent; an adult knows their own.
       return c.age < 14 ? `@[[הוא|היא]] [[שוקל|שוקלת]] בערך ${c.weight} ק"ג.` : `בערך ${c.weight} ק"ג.`;
@@ -779,7 +828,7 @@ function logTrend(sim: Sim, t0: number) {
 }
 
 /** Making a scene safe never counts as "carrying on" in an unsafe scene. */
-const SCENE_SAFETY = ["scene", "backup", "callPolice", "callFire", "evacuate", "ventilate", "gasOff", "secureDog", "transport", "end", "wait"];
+const SCENE_SAFETY = ["scene", "removeHazard", "backup", "callPolice", "callFire", "evacuate", "ventilate", "gasOff", "secureDog", "transport", "end", "wait"];
 /** Action ids a condition refers to. */
 function condActions(c: Cond | undefined): string[] {
   if (!c) return [];
@@ -875,12 +924,13 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
   if (q) {
     record();
     // Answers marked "@" in the content are a bystander's lines ("@[[הוא|היא]] נפל..."): the bystander says
-    // them even when the patient can talk. A confused patient talks, but the history comes from whoever is with them.
+    // them even when the patient can talk. A confused patient talks, but the history comes from whoever is with them
+    // (the complaint is the patient's own words: "מי אתם?! תעזבו אותי").
     const raw = answer(sim, q);
     const text = raw.replace(/^@/, "");
     const bystanderLine = raw.startsWith("@");
     const fromBystander = () => say(`${c.bystander}: "${text}"`);
-    if (c.bystander && BYSTANDER_KEYS.includes(q) && (bystanderLine || def.confused)) return fromBystander();
+    if (c.bystander && BYSTANDER_KEYS.includes(q) && (bystanderLine || (def.confused && q !== "complaint"))) return fromBystander();
     if (q === "complaint" && IMPROVED.has(sim.state) && !current(sim).answers?.complaint && canTalk(sim)) {
       return say('[[המטופל|המטופלת]]: "אני [[מרגיש|מרגישה]] יותר טוב עכשיו."');
     }
@@ -1020,13 +1070,55 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say("בעל הבית לוקח את הכלב לחדר אחר וסוגר את הדלת.");
     case "interpreter": {
       record();
-      return say(sim.case.bystander ? `${sim.case.bystander} [[מתרגם|מתרגמת]] בשבילכם.` : "מתורגמן טלפוני דרך המוקד מצטרף לשיחה ומתרגם.");
+      return say(sim.case.bystander ? `${sim.case.bystander} ${bystanderVerb(sim, "מתרגם", "מתרגמת")} בשבילכם.` : "מתורגמן טלפוני דרך המוקד מצטרף לשיחה ומתרגם.");
+    }
+    case "askFamily": {
+      // Asking the family: they interpret when the patient isn't understood; otherwise they tell what they know.
+      if (comp?.languages) return perform(content, sim, { ...item, id: "interpreter" }, out);
+      if (!c.bystander) return say("אין בזירה בני משפחה או עדים.");
+      const told = (["events", "onset", "history"] as const).find((k) => answer(sim, k).startsWith("@")) ?? "history";
+      sim.actions.push({ action: told === "events" ? "askEvents" : told === "onset" ? "askOnset" : "askHistory", t: sim.t, state: sim.state });
+      return say(`${c.bystander}: "${answer(sim, told).replace(/^@/, "")}"`);
+    }
+    case "removeHazard": {
+      // "הרחקת גורם מסכן" removes whatever the danger here is: the dog, the gas, the allergen, the chemical.
+      const fixes = comp?.unsafe ? condActions(comp.resolvedWhen) : [];
+      const t = JSON.stringify(c.template);
+      const ids = fixes.includes("secureDog")
+        ? ["secureDog"]
+        : fixes.includes("gasOff")
+          ? ["ventilate", "gasOff"]
+          : fixes.length
+            ? [fixes[0]]
+            : t.includes('"removeAllergen"')
+              ? ["removeAllergen"]
+              : t.includes('"decon"')
+                ? ["decon"]
+                : ["scene"];
+      for (const next of ids) perform(content, sim, { kind: "action", id: next, phrase: item.phrase }, out);
+      return;
+    }
+    case "tubeCheck":
+      if (!flags.has("intubated")) return say("אין טובוס לבדוק.");
+      record();
+      perform(content, sim, { kind: "action", id: "etco2", phrase: item.phrase }, out);
+      perform(content, sim, { kind: "action", id: "lungs", phrase: item.phrase }, out);
+      return say("האזנה מעל הקיבה: שקט — הטובוס בקנה הנשימה.");
+    case "rsiDrugs": {
+      // "הזרקת התרופות": the drugs drawn up earlier, at their doses.
+      const ready = (sim.prepared ?? []).filter((p) => p.value !== null);
+      if (!ready.length) return say("אילו תרופות ובאיזה מינון?");
+      for (const p of ready) giveDrug(content, sim, { kind: "drug", ...p, phrase: "" }, out);
+      return;
     }
     case "secondPatient": {
       record();
       const def2 = sim.comp ? content.complications?.[sim.comp.id] : undefined;
       return say(def2?.second ? `הנפגע הנוסף: ${resolve(def2.second, c)}` : "אין נפגע נוסף בזירה.");
     }
+    case "sceneInfo":
+      record();
+      return say("אין בזירה משהו מיוחד מעבר למה שתואר.");
     case "sceneAccess":
       record();
       return say("יש גישה לאמבולנס עד המטופל.");
@@ -1122,9 +1214,10 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       return say("מעסה אוטומטי מחובר ופועל.");
     case "cprStop":
       record();
+      // (Where resuscitation is wrong — a DNR, signs of death — stopping is right.)
+      if (!pulse && flags.has("cpr") && !c.template.actions?.cpr?.wrong) feedback(sim, "warn", "הפסקת עיסויים בזמן שאין דופק.");
       setFlag(sim, "cpr", false);
       setFlag(sim, "lucas", false);
-      if (!pulse) feedback(sim, "warn", "הפסקת עיסויים בזמן שאין דופק.");
       return say("העיסויים הופסקו.");
     case "shock": {
       if (item.joulesPerKg && item.joules !== undefined) item.joules = Math.round(item.joules * c.weight);
@@ -1148,6 +1241,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       }
       record({ joules: item.joules });
       if (!pulse) feedback(sim, "error", "היפוך מסונכרן בדום לב — יש לתת דפיברילציה לא מסונכרנת.");
+      else if (/^sinus/.test(def.rhythm ?? "sinus")) feedback(sim, "error", "היפוך חשמלי לקצב סינוס — אין הפרעת קצב להפוך.");
       else if ((v.gcs ?? 15) >= 9 && !recentlySedated(sim)) feedback(sim, "error", "היפוך חשמלי למטופל בהכרה ללא סדציה.");
       return say(`⚡ היפוך חשמלי מסונכרן ${item.joules}J בוצע.`);
     }

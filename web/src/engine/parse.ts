@@ -4,7 +4,7 @@
 // lexicon. Drugs are matched first and take the dose/unit/route words that
 // follow them, so "אדרנלין 1 מג IV" doesn't also read as "open an IV".
 
-import { ACTIONS, ASK_OR_EXAM, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
+import { ACTIONS, ASK_OR_EXAM, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, RHYTHM_NAMES, ROUTES, STATEMENT_TRIGGERS, STOPWORDS, UNITS } from "./lexicon";
 
 export type ParsedItem =
   | { kind: "action"; id: string; joules?: number; joulesPerKg?: boolean; phrase: string; withBag?: boolean }
@@ -25,6 +25,10 @@ export type Parsed = {
   flush: boolean;
   /** Drugs whose contraindications were checked ("קונטרה אינדיקציות לניטרט") — a dose may follow. */
   contra?: string[];
+  /** Drugs drawn up with their dose ("שאיבת קטמין 100 מג") — given later. */
+  preparedDrugs?: { drug: string; value: number | null; unit: string | null; route: string | null }[];
+  /** Things stopped ("הפסק אמבו", "הפסקת הרטמן"): action or drug ids. */
+  stopped?: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -47,7 +51,8 @@ export function normalize(text: string): string {
 
 export function tokenize(text: string): string[] {
   // A concentration ("גלוקוז 25% 100 מל") isn't a dose.
-  const norm = normalize(text).replace(/\d+(?:[.,]\d+)?\s*%/g, " ");
+  // ("GCS15" is the score after the name.)
+  const norm = normalize(text).replace(/\d+(?:[.,]\d+)?\s*%/g, " ").replace(/gcs(?=\d)/g, "gcs ");
   const raw = norm.match(/\d+(?:[.,]\d+)?|[a-z0-9µ]+|[א-ת]+|\//g) ?? [];
   return raw
     .map((t) => (/^\d+,\d{1,2}$/.test(t) ? t.replace(",", ".") : t.replace(",", "")))
@@ -84,10 +89,13 @@ function distance(a: string, b: string, max: number): number {
 }
 
 // Words one letter away from a common different word ("מקשיב" vs "מושיב"): exact only.
-const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת", "ריאות", "לריאות", "מוצץ", "מוצצת", "מציצה", "מגיב", "מגיבה", "אוושה", "אוושות", "אקמול", "ימניים", "ימנים", "עיניים", "עינים", "פינוי", "שינוי", "קיבוע", "תלונות", "תלונה"].map(normalize));
+const NO_TYPO = new Set(["מושיב", "מושיבה", "שואב", "שואבת", "שאיבה", "שטיפה", "מיגון", "לוחץ", "הכרת", "מזעזע", "דקסטרו", "סוכרת", "סכרת", "ישיבה", "בחילה", "בחילות", "איירווי", "טבעות", "קשירה", "קושרת", "ריסון", "מרגיע", "מרגיעה", "חימום", "דימום", "משטרה", "עטיפה", "עוטף", "עוטפת", "נושם", "נושמת", "מדדים", "שוקל", "שוקלת", "ריאות", "לריאות", "מוצץ", "מוצצת", "מציצה", "מגיב", "מגיבה", "אוושה", "אוושות", "אקמול", "ימניים", "ימנים", "עיניים", "עינים", "פינוי", "שינוי", "קיבוע", "תלונות", "תלונה",
+  // "שמירה" isn't "שמיכה", "כיסוי" isn't "כיבוי", "כליות"/"כריות" aren't "כוויות", "אישור" isn't "אישון", "אמבולנס" isn't "לאמבולנס".
+  "שמיכה", "כיבוי", "כוויות", "כוויה", "כריות", "אישון", "לאמבולנס"].map(normalize));
 
-/** Exact only, not even a sound-alike swap: "אוושה" is one swap from "עושה" (doing). */
-const STRICT = new Set(["אוושה", "אוושות"].map(normalize));
+/** Exact only, not even a sound-alike swap: "אוושה" is one swap from "עושה" (doing), "משיכה" from "מסיכה" (mask).
+ *  Ending the scenario never happens on a typo ("מסיכת", "מסייעת" are not "מסיימת"). */
+const STRICT = new Set(["אוושה", "אוושות", "משיכה", "סיום", "מסיים", "מסיימת", "הגענו", "סוף"].map(normalize));
 
 /** 0 = exact, 0.5 = sound-alike letter swap, 1 = other typo, -1 = no match. */
 function tokenMatch(input: string, word: string): number {
@@ -195,7 +203,7 @@ function bestAt(tokens: string[], used: boolean[], i: number, phrases: Phrase[],
 const isNumber = (t: string) => /^\d+(\.\d+)?$/.test(t);
 
 /** Words that carry a negation on to the treatment after them: "לא נותנת ניטרו", "אין צורך באינטובציה". */
-const NEGATED_VERBS = ["נותן", "נותנת", "לתת", "נותנים", "מבצע", "מבצעת", "לבצע", "עושה", "עושים", "לעשות", "צורך", "צריך", "צריכה",
+const NEGATED_VERBS = ["רציתי", "רוצה", "התכוונתי", "נותן", "נותנת", "לתת", "נותנים", "מבצע", "מבצעת", "לבצע", "עושה", "עושים", "לעשות", "צורך", "צריך", "צריכה",
   "מחבר", "מחברת", "לחבר", "פותח", "פותחת", "לפתוח", "מתחיל", "מתחילה", "להתחיל", "ממשיך", "ממשיכה", "להמשיך", "מזריק", "מזריקה", "להזריק"].map(normalize);
 
 function negatedBefore(tokens: string[], start: number): boolean {
@@ -212,16 +220,42 @@ const describedBefore = (tokens: string[], start: number) =>
 
 /** "מוציאה ציוד הנשמה למקרה הצורך", "מכין אטרופין": getting something ready isn't doing it — unless the
  *  same message also gives it ("מכינה אדנוזין ונותנת בפוש"). */
-const PREPARE_TOKENS = ["מכין", "מכינה", "להכין", "מכינים", "מוציא", "מוציאה", "להוציא", "מוציאים", "פורק", "פורקת", "לפרוק", "פורקים", "מארגן", "מארגנת", "לארגן", "ציוד", "מוכן", "מוכנה", "בהיכון", "להביא", "מביא", "מביאה", "מביאים", "תביא"].map(normalize);
+const PREPARE_TOKENS = ["מכין", "מכינה", "להכין", "מכינים", "הכנת", "הכנה", "מוציא", "מוציאה", "להוציא", "מוציאים", "פורק", "פורקת", "לפרוק", "פורקים", "מארגן", "מארגנת", "לארגן", "ציוד", "מוכן", "מוכנה", "בהיכון", "להביא", "מביא", "מביאה", "מביאים", "תביא"].map(normalize);
+/** Drawing a drug up ("שאיבת קטמין 100 מג") — for drugs only: "שאיבה" alone is suction. */
+const DRAW_TOKENS = ["שאיבת", "שאיבה", "שואב", "שואבת", "לשאוב", "שואבים"].map(normalize);
+/** Charging the defibrillator ("טעינת שוק 26 ג'ול") — for shocks only. */
+const CHARGE_TOKENS = ["טעינת", "טעינה", "טוען", "טוענת", "לטעון", "טוענים"].map(normalize);
 const GIVE_TOKENS = ["נותן", "נותנת", "לתת", "נותנים", "מזריק", "מזריקה", "להזריק", "מבצע", "מבצעת", "לבצע", "משתמש", "משתמשת", "להשתמש"].map(normalize);
-const preparedBefore = (tokens: string[], start: number, end: number) =>
-  [start - 1, start - 2].some((k) => k >= 0 && variants(tokens[k]).some((v) => PREPARE_TOKENS.includes(v))) &&
-  !tokens.slice(end).some((t) => variants(t).some((v) => GIVE_TOKENS.includes(v)));
+const isUnitWord = (t: string) => UNIT_PHRASES.some((p) => p.tokens.length === 1 && variants(t).includes(p.tokens[0])) || PER_KG_TOKENS.some((k) => variants(t).includes(k));
+/** Where the "getting it ready" word is, up to two words before the item (a dose in between doesn't count:
+ *  "שאיבה של 5.6 מג אטומידאט") — or -1, also when the same message gives it ("מכינה אדנוזין ונותנת בפוש"). */
+function preparedAt(tokens: string[], start: number, end: number, extra: string[] = []): number {
+  if (tokens.slice(end).some((t) => variants(t).some((v) => GIVE_TOKENS.includes(v)))) return -1;
+  for (let k = start - 1, words = 0; k >= 0 && words < 2; k--) {
+    if (isNumber(tokens[k]) || isUnitWord(tokens[k])) continue;
+    if (variants(tokens[k]).some((v) => PREPARE_TOKENS.includes(v) || extra.includes(v))) return k;
+    words++;
+  }
+  return -1;
+}
 
 /** "שוטפת עם סליין", "20 שטיפה": flushing the line, not a bolus. */
 const FLUSH_TOKENS = ["שוטף", "שוטפת", "שטיפה", "לשטוף", "שוטפים", "פלאש", "flush"].map(normalize);
 const flushedBefore = (tokens: string[], start: number) =>
   [start - 1, start - 2].some((k) => k >= 0 && variants(tokens[k]).some((v) => FLUSH_TOKENS.includes(v)));
+
+/** "איזוקט 2 מג מהול ב־4 סליין": the saline a drug is diluted in isn't a fluid order. */
+const DILUTE_TOKENS = ["מהול", "מהולה", "מהולים", "מיהול", "במיהול", "לדלל", "מדולל", "מדוללת", "מדלל", "מדללת"].map(normalize);
+
+/** "הפסק אמבו", "הפסקת הרטמן", "ביטול קוצב", "להסיר חמצן": stopping something, not starting it. */
+const STOP_TOKENS = ["הפסק", "הפסקת", "להפסיק", "מפסיק", "מפסיקה", "מפסיקים", "עצירת", "עצור", "עוצר", "עוצרת", "לעצור", "ביטול", "בטול", "מבטל", "מבטלת", "לבטל", "בטל", "הסרת", "להסיר", "מסיר", "מסירה", "הורדת", "להוריד", "מוריד", "מורידה"].map(normalize);
+/** What stopping these is called in the lexicon. */
+const STOP_AS: Record<string, string> = { cpr: "cprStop", lucas: "cprStop", o2: "o2Stop" };
+
+/** "חמש מיליגרם", "אחד גרם": a number written as a word, before a unit. */
+const NUMBER_WORDS: Record<string, number> = Object.fromEntries(
+  Object.entries({ אחד: 1, אחת: 1, שניים: 2, שתיים: 2, שני: 2, שתי: 2, שלוש: 3, שלושה: 3, ארבע: 4, ארבעה: 4, חמש: 5, חמישה: 5, שש: 6, שישה: 6, שבע: 7, שבעה: 7, שמונה: 8, תשע: 9, תשעה: 9, עשר: 10, עשרה: 10, חצי: 0.5 }).map(([w, n]) => [normalize(w), n]),
+);
 
 /** "קונטרה אינדיקציות לניטרט", "התוויות נגד לאדנוזין". */
 const CONTRA_TOKENS = ["קונטרה", "קונטראינדיקציות", "קונטרהאינדיקציות", "התוויות", "התויות", "אינדיקציות"].map(normalize);
@@ -277,8 +311,38 @@ export function mentions(text: string, phrase: string): boolean {
   return false;
 }
 
+/** Words that only grade a diagnosis ("אסטמה קשה", "פרפור עליות חדש"). */
+const GRADES = ["קשה", "קלה", "קל", "בינונית", "בינוני", "חמורה", "חמור", "חדש", "חדשה", "חריף", "חריפה", "כרוני", "כרונית", "מהיר", "איטי"].map(normalize);
+
+/** Is the text just this name, word for word (typos forgiven), maybe with a grade after it? */
+const NAME_TOKENS = new Map<string, string[]>();
+export function namesExactly(text: string, name: string): boolean {
+  let tokens = tokenize(text);
+  let want = NAME_TOKENS.get(name);
+  if (!want) NAME_TOKENS.set(name, (want = tokenize(name)));
+  // ("פרפור איטי" is a name of its own; "אסטמה קשה" is asthma, graded.)
+  while (tokens.length > want.length && GRADES.includes(tokens.at(-1)!)) tokens = tokens.slice(0, -1);
+  if (want.length !== tokens.length) return false;
+  return want.length > 0 && tokens.length === want.length && want.every((w, k) => tokenMatch(tokens[k], w) >= 0);
+}
+
+/** Is the whole text one action, word for word ("מקצב" is a rhythm check, never the rhythm "מקוצב")? */
+export function isExactAction(text: string): boolean {
+  const tokens = tokenize(text);
+  const m = tokens.length ? bestAt(tokens, tokens.map(() => false), 0, ACTION_PHRASES) : null;
+  return m !== null && m.cost === 0 && m.end === tokens.length;
+}
+
+const RHYTHM_WORDS = Object.values(RHYTHM_NAMES).flatMap((r) => r.words);
+const isRhythmName = (clause: string) => !isExactAction(clause) && RHYTHM_WORDS.some((w) => namesExactly(clause, w));
+
+/** "שוק נוירוגני", "בהלם ספטי": the kind of shock is a diagnosis — never a defibrillation. */
+const SHOCK_KIND = /(^|\s)[וב]?(?:שוק|הלם)\s+(?:נוירוגני|נוירוגנית|ספטי|ספטית|היפו\S*|תת\s*נפחי|אנ?אפילקט\S*|קרדיוגני|קרדיוגנית|המורגי|המורגית|דיסטריבוטיבי|חסימתי|אובסטרוקטיבי)/;
+
 /** Where a diagnosis starts in the clause (its trigger word), or -1. */
 function statementStart(clause: string): number {
+  const kind = SHOCK_KIND.exec(clause);
+  if (kind) return kind.index + kind[1].length;
   const words = clause.split(/\s+/);
   let pos = 0;
   for (let j = 0; j < words.length; j++) {
@@ -312,7 +376,7 @@ const REPORT_TRANSPORT = /,\s*((?:ו)?[^,]*(?:פינוי|מפנה|מפנים|נ�
 /** "...ומפנה מהר" at the end of a report is the next order, not part of the report. */
 const REPORT_TAIL = /(?:,\s*(?:לא\s*,?\s*)?((?:ו)?(?:אני\s+)?(?:מפנה|מפנים|מתחיל|מתחילה|מעמיס|מעמיסה|מעמיסים|נוסעים|ממשיך|ממשיכה)(?:\s.*)?)|\s(ו(?:אני\s+)?(?:מפנה|מפנים|מתחיל|מתחילה|מעמיס|מעמיסה|מעמיסים|נוסעים|ממשיך|ממשיכה)(?:\s.*)?))$/;
 
-export function parse(text: string): Parsed {
+function parseText(text: string): Parsed {
   // "אחרי זה החייאה" sequences the next order ("זה" is dropped as filler, which would leave "אחרי החייאה").
   text = text.replace(/(^|\s)ו?אחרי\s+זה(?=\s|,|$)/g, "$1ואז");
   const report = REPORT.exec(text);
@@ -332,10 +396,43 @@ export function parse(text: string): Parsed {
       planned: [...head.planned, ...after.planned],
       flush: head.flush || after.flush,
       bare: head.bare ?? after.bare,
+      preparedDrugs: [...(head.preparedDrugs ?? []), ...(after.preparedDrugs ?? [])],
+      stopped: [...(head.stopped ?? []), ...(after.stopped ?? [])],
       statements,
     };
   }
   return parseClauses(text);
+}
+
+/** Hebrew typed with the keyboard left on English ("cyhju, vfrv" = "בטיחות, הכרה"). */
+const HEBREW_KEYS: Record<string, string> = {
+  q: "/", w: "'", e: "ק", r: "ר", t: "א", y: "ט", u: "ו", i: "ן", o: "ם", p: "פ", a: "ש", s: "ד", d: "ג", f: "כ", g: "ע", h: "י",
+  j: "ח", k: "ל", l: "ך", ";": "ף", ",": "ת", ".": "ץ", z: "ז", x: "ס", c: "ב", v: "ה", b: "נ", n: "מ", m: "צ",
+};
+/** Every Latin word the lexicon knows (IV, mg, cpap…): those are meant in English. */
+const LATIN_WORDS = new Set(
+  [...ACTIONS, ...DRUGS, ...NOT_CARRIED].flatMap((e) => e.words)
+    .concat(Object.values(ROUTES).flat(), Object.values(UNITS).flat(), PER_KG, PER_MIN, STATEMENT_TRIGGERS, Object.values(RHYTHM_NAMES).flatMap((r) => r.words))
+    .flatMap((w) => tokenize(w))
+    .filter((t) => /^[a-z]/.test(t)),
+);
+
+/** Reads the message; if it has Latin words the lexicon doesn't know, also as Hebrew typed on an English
+ *  keyboard — and keeps whichever reading understood more. */
+export function parse(text: string): Parsed {
+  const plain = parseText(text);
+  if (!/[a-z]{2}/i.test(text)) return plain;
+  let changed = false;
+  const swapped = text.replace(/[a-z][a-z,.;]*/gi, (w) => {
+    const word = w.toLowerCase().replace(/[,.;]+$/, "");
+    if (LATIN_WORDS.has(word) || word.length < 2) return w;
+    changed = true;
+    return [...w.toLowerCase()].map((ch) => HEBREW_KEYS[ch] ?? ch).join("");
+  });
+  if (!changed) return plain;
+  const alt = parseText(swapped);
+  const size = (p: Parsed) => p.items.length + p.statements.length + p.prepared.length;
+  return size(alt) > size(plain) ? alt : plain;
 }
 
 function parseClauses(text: string): Parsed {
@@ -347,6 +444,11 @@ function parseClauses(text: string): Parsed {
   const clauses: string[] = [];
   const statements: string[] = [];
   for (const c of raw) {
+    // A clause that only names a rhythm ("אסיסטולה. המשך החייאה") is a reading, too.
+    if (isRhythmName(c)) {
+      statements.push(c);
+      continue;
+    }
     const at = statementStart(c);
     if (at < 0) clauses.push(c);
     else {
@@ -366,6 +468,8 @@ function parseClauses(text: string): Parsed {
     out.prepared.push(...r.prepared);
     out.flush ||= r.flush;
     if (r.contra?.length) out.contra = [...(out.contra ?? []), ...r.contra];
+    out.preparedDrugs = [...(out.preparedDrugs ?? []), ...(r.preparedDrugs ?? [])];
+    out.stopped = [...(out.stopped ?? []), ...(r.stopped ?? [])];
     out.bare ??= r.bare;
     buffer = [];
   };
@@ -443,10 +547,13 @@ function isQuestion(clause: string): boolean {
   return /[?؟]\s*$/.test(clause) || startsWithQuestionWord(clause);
 }
 
+/** "שואלת אותו למה הזמין מד"א": a clause that opens with "I ask" is a question, whatever follows. */
+const ASK_VERBS = ["שואל", "שואלת", "לשאול", "שואלים", "מברר", "מבררת", "לברר"].map(normalize);
+
 function startsWithQuestionWord(clause: string): boolean {
   const first = tokenize(clause)[0];
   // "ומה המרחק לבית החולים" — with a prefix letter too.
-  return first !== undefined && (QUESTION_WORDS.includes(first) || (first.startsWith("ו") && QUESTION_WORDS.includes(first.slice(1))));
+  return first !== undefined && [first, ...(first.startsWith("ו") ? [first.slice(1)] : [])].some((w) => QUESTION_WORDS.includes(w) || ASK_VERBS.includes(w));
 }
 
 /** A question never gives a drug or does a treatment; naming a drug in one asks about medications. */
@@ -464,16 +571,38 @@ function questionItems(items: ParsedItem[], keepActions = false): ParsedItem[] {
   return kept;
 }
 
+/** What a stop word can stop ("הפסק אמבו") — "מוריד לחץ דם" isn't stopping a blood-pressure check. */
+const STOPPABLE = ["cpr", "lucas", "o2", "bvm", "pacing", "cpap"];
+
 function parseItems(text: string): Omit<Parsed, "statements"> {
   const tokens = tokenize(text);
+  // "חמש מיליגרם", "אחד גרם": a number word before a unit is the number.
+  for (let k = 0; k + 1 < tokens.length; k++) {
+    const n = NUMBER_WORDS[tokens[k]];
+    if (n !== undefined && isUnitWord(tokens[k + 1])) tokens[k] = String(n);
+  }
   const used = tokens.map(() => false);
   const found: { pos: number; item: ParsedItem }[] = [];
   const negated: string[] = [];
   const prepared: string[] = [];
+  const preparedDrugs: NonNullable<Parsed["preparedDrugs"]> = [];
+  const stopped: string[] = [];
   const contra: string[] = [];
   let flush = false;
   const mark = (a: number, b: number) => {
     for (let k = a; k < b; k++) used[k] = true;
+  };
+  /** The stop word right before an item ("הפסק אמבו"), or -1. */
+  const stopAt = (start: number) => (start >= 1 && !used[start - 1] && variants(tokens[start - 1]).some((v) => STOP_TOKENS.includes(v)) ? start - 1 : -1);
+  /** "מהול ב־4 סליין": where the dilution word is, up to three tokens back, or -1. */
+  const dilutedAt = (start: number) => {
+    for (let k = start - 1; k >= Math.max(0, start - 3); k--) if (variants(tokens[k]).some((v) => DILUTE_TOKENS.includes(v))) return k;
+    return -1;
+  };
+  /** Does a drug start at k (after any route words)? */
+  const drugAt = (k: number) => {
+    while (k < tokens.length && bestAt(tokens, used, k, ROUTE_PHRASES, true)) k = bestAt(tokens, used, k, ROUTE_PHRASES, true)!.end;
+    return k < tokens.length && bestAt(tokens, used, k, DRUG_PHRASES) !== null;
   };
 
   // Pass 0: a dose answering "באיזה מינון?" — "0.4 מג מתחת ללשון", "200 מג לשריר" — keeps its route
@@ -502,30 +631,50 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     // A typo-match on a drug never beats an exact action ("ניטור" isn't "ניטרו").
     if (m.cost > 0 && bestAt(tokens, used, i, ACTION_PHRASES)?.cost === 0) continue;
     mark(m.start, m.end);
+    const skip = () => (i = m.end - 1);
     if (negatedBefore(tokens, m.start)) {
       negated.push(m.phrase.key);
-      i = m.end - 1;
+      skip();
       continue;
     }
     if (describedBefore(tokens, m.start) || failedAfter(tokens, m.end)) {
-      i = m.end - 1;
+      skip();
       continue;
     }
-    if (preparedBefore(tokens, m.start, m.end)) {
-      prepared.push(m.phrase.key);
-      i = m.end - 1;
+    const stop = stopAt(m.start);
+    if (stop >= 0) {
+      mark(stop, stop + 1);
+      stopped.push(m.phrase.key);
+      skip();
       continue;
     }
     // "קונטרה אינדיקציות לניטרט": checking whether it's allowed, not giving it.
     if (contraBefore(tokens, m.start)) {
       contra.push(m.phrase.key);
-      i = m.end - 1;
+      skip();
       continue;
     }
-    if (m.phrase.key === "saline" && flushedBefore(tokens, m.start)) {
-      flush = true;
-      i = m.end - 1;
-      continue;
+    if (m.phrase.key === "saline") {
+      const d = dilutedAt(m.start);
+      if (d >= 0) {
+        mark(d, m.start);
+        skip();
+        continue;
+      }
+      if (flushedBefore(tokens, m.start)) {
+        flush = true;
+        skip();
+        continue;
+      }
+    }
+    // A quantity right before the drug ("300 מג אספירין", "5 מג ונטולין 0.5 מג אירובנט").
+    let before: { j: number; q: NonNullable<ReturnType<typeof readQuantity>> } | null = null;
+    for (let j = Math.max(0, m.start - 4); j < m.start; j++) {
+      const q = readQuantity(tokens, used, j);
+      if (q && q.end === m.start) {
+        before = { j, q };
+        break;
+      }
     }
     let value: number | null = null;
     let unit: string | null = null;
@@ -536,6 +685,8 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       if (bestAt(tokens, used, j, DRUG_PHRASES)?.cost === 0) break;
       if (value === null) {
         const q = readQuantity(tokens, used, j);
+        // With doses written before each drug, the one after this drug is the next drug's.
+        if (q && before && drugAt(q.end)) break;
         if (q) {
           value = q.value;
           unit = q.unit;
@@ -566,21 +717,14 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       const next = bestAt(tokens, used, j, ACTION_PHRASES);
       if (next?.cost === 0 && next.phrase.key !== "askWeight") break;
     }
+    if (value === null && before && !used[before.j]) {
+      value = before.q.value;
+      unit = before.q.unit;
+      mark(before.j, before.q.end);
+    }
     if (unit?.startsWith("/")) unit = (DRUGS.find((d) => d.id === m.phrase.key)?.unit ?? "") + unit;
     // Fluids are measured in ml: "סליין 20 מג לקג" is a slip for ml.
     if (VOLUME_DRUGS.includes(m.phrase.key) && unit?.startsWith("mg")) unit = unit.replace(/^mg/, "ml");
-    // "300 מג אספירין": quantity written before the drug.
-    if (value === null) {
-      for (let j = Math.max(0, m.start - 4); j < m.start; j++) {
-        const q = readQuantity(tokens, used, j);
-        if (q && q.end === m.start) {
-          value = q.value;
-          unit = q.unit;
-          mark(j, q.end);
-          break;
-        }
-      }
-    }
     // "בשאיפה ונטולין", "IV אדרנלין": route written before the drug.
     if (route === null) {
       for (let j = Math.max(0, m.start - 2); j < m.start; j++) {
@@ -593,8 +737,23 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
         }
       }
     }
+    // "מטופרולול 5 מג, סליין 10 מל": a few ml of saline after a drug flush the line — never a fluid bolus.
+    if (m.phrase.key === "saline" && value !== null && value <= 20 && (unit === null || unit === "ml")) {
+      flush = true;
+      skip();
+      continue;
+    }
+    // Drawn up ("שאיבת קטמין 100 מג") or got ready: the dose is kept for when it's given.
+    const ready = preparedAt(tokens, m.start, m.end, DRAW_TOKENS);
+    if (ready >= 0) {
+      mark(ready, ready + 1);
+      prepared.push(m.phrase.key);
+      preparedDrugs.push({ drug: m.phrase.key, value, unit, route });
+      skip();
+      continue;
+    }
     found.push({ pos: m.start, item: { kind: "drug", drug: m.phrase.key, value, unit, route, phrase: m.phrase.text } });
-    i = m.end - 1;
+    skip();
   }
 
   // Pass 2: actions on what's left.
@@ -603,8 +762,9 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     const m = bestAt(tokens, used, i, ACTION_PHRASES);
     if (!m) continue;
     mark(m.start, m.end);
+    const key = m.phrase.key;
     if (negatedBefore(tokens, m.start)) {
-      negated.push(m.phrase.key);
+      negated.push(key);
       i = m.end - 1;
       continue;
     }
@@ -612,18 +772,30 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       i = m.end - 1;
       continue;
     }
-    if (preparedBefore(tokens, m.start, m.end)) {
-      prepared.push(m.phrase.key);
+    const stop = STOPPABLE.includes(key) ? stopAt(m.start) : -1;
+    if (stop >= 0) {
+      mark(stop, stop + 1);
+      if (STOP_AS[key]) found.push({ pos: m.start, item: { kind: "action", id: STOP_AS[key], phrase: m.phrase.text } });
+      else stopped.push(key);
+      i = m.end - 1;
+      continue;
+    }
+    // Charging the defibrillator is getting the shock ready; drawing up "תרופות" is the drugs for intubation.
+    // (Asking is never "got ready", and "הכנה ניהול נתיב אוויר" still looks at the airway.)
+    const ready = key === "airway" || (key.startsWith("ask") && key !== "askMeds") ? -1 : preparedAt(tokens, m.start, m.end, key === "shock" || key === "sync" ? CHARGE_TOKENS : key === "askMeds" ? DRAW_TOKENS : []);
+    if (ready >= 0) {
+      mark(ready, ready + 1);
+      prepared.push(key === "askMeds" ? "rsiDrugs" : key);
       i = m.end - 1;
       continue;
     }
     // "מינון לפי משקל" is a calculation, not a question about the weight.
-    if (m.phrase.key === "askWeight" && m.start > 0 && variants(tokens[m.start - 1]).includes("לפי")) {
+    if (key === "askWeight" && m.start > 0 && variants(tokens[m.start - 1]).includes("לפי")) {
       i = m.end - 1;
       continue;
     }
-    const item: ParsedItem = { kind: "action", id: m.phrase.key, phrase: m.phrase.text };
-    if (m.phrase.key === "shock" || m.phrase.key === "sync") {
+    const item: ParsedItem = { kind: "action", id: key, phrase: m.phrase.text };
+    if (key === "shock" || key === "sync") {
       // Energy right after ("שוק 200") or right before ("200 גאול שוק").
       for (const j of [m.end, m.end + 1, m.start - 2, m.start - 1]) {
         const q = j >= 0 ? readQuantity(tokens, used, j) : null;
@@ -640,6 +812,8 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     i = m.end - 1;
   }
 
+  // "שטיפה" alone: flushing the line.
+  if (!found.length && tokens.length && tokens.every((t) => variants(t).some((v) => FLUSH_TOKENS.includes(v)) || variants(t).includes("סליינ"))) flush = true;
   // A lone quantity ("300 מג", "200") answers a pending question.
   let bare: Parsed["bare"] = bareAnswer;
   for (let i = 0; i < tokens.length; i++) {
@@ -660,10 +834,16 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     .map((f) => f.item)
     // "נוטל תרופות לאין־אונות?" is the PDE5 question, not the medication list ("לוקחת תרופות" still is).
     .filter((it, _k, all) => !(it.kind === "action" && it.id === "askMeds" && it.phrase === "תרופות" && all.some((o) => o.kind === "action" && (o.id === "askPde5" || o.id === "askAllergies"))))
-    .filter((it, k, all) => it.kind === "drug" || REPEATABLE.includes(it.id) || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k);
+    .filter((it, k, all) => it.kind === "drug" || REPEATABLE.includes(it.id) || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k)
+    // "בית חולים דיווח" is the report to the hospital, not also a question about the drive.
+    .filter((it, _k, all) => !(it.kind === "action" && it.id === "askHospital" && it.phrase === "בית חולים" && all.some((o) => o.kind === "action" && (o.id === "prealert" || o.id === "transport"))))
+    // "כאבים בחזה" asks about chest pain — it isn't also a chest examination.
+    .filter((it, _k, all) => !(it.kind === "action" && it.id === "chest" && it.phrase === "חזה" && all.some((o) => o.kind === "action" && o.id === "askPain")))
+    // "נוזלים סליין 500 מל" names the saline twice: the one without a dose is the same order.
+    .filter((it, k, all) => it.kind !== "drug" || it.value !== null || !all.some((o, j) => j !== k && o.kind === "drug" && o.drug === it.drug && (o.value !== null || j < k)));
   for (const d of contra) {
     const checks = d === "nitro" || d === "isoket" ? ["askPde5", "bp"] : ["askAllergies"];
     for (const id of checks) if (!items.some((it) => it.kind === "action" && it.id === id)) items.push({ kind: "action", id, phrase: "" });
   }
-  return { items, bare, negated, prepared: [...new Set(prepared)], planned: [], flush, contra };
+  return { items, bare, negated, prepared: [...new Set(prepared)], planned: [], flush, contra, preparedDrugs, stopped };
 }
