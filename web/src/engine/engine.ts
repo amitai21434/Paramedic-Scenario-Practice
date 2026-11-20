@@ -148,7 +148,7 @@ class Output {
 }
 
 /** Readings a student states that aren't a storyline's diagnosis ("ROSC", "חסימת הולכה"). */
-const EXTRA_DX = ["rosc", "פגיעת מעיכה", "תסמונת מעיכה", "מעיכה", "חזרה לדופק", "מטופל חדש", "חסימת הולכה", "פרפור איטי", "טכיקרדיה צרת קומפלקס", "טכיקרדיה רחבת קומפלקס", "טכיקרדיה צרה", "טכיקרדיה רחבה", "אנפילקסיס", "אנאפילקסיס", "אורטיקריה", "אוטם", "אוטם תחתון ימני", "אוטם תחתון", "אוטם קדמי", "אסתמה", "התקף אסתמה", "הלם"];
+const EXTRA_DX = ["rosc", "טכיקרדיה", "copd", "החמרה בcopd", "החמרת copd", "פגיעת מעיכה", "תסמונת מעיכה", "מעיכה", "חזרה לדופק", "מטופל חדש", "חסימת הולכה", "פרפור איטי", "טכיקרדיה צרת קומפלקס", "טכיקרדיה רחבת קומפלקס", "טכיקרדיה צרה", "טכיקרדיה רחבה", "אנפילקסיס", "אנאפילקסיס", "אורטיקריה", "אוטם", "אוטם תחתון ימני", "אוטם תחתון", "אוטם קדמי", "אסתמה", "התקף אסתמה", "הלם"];
 
 /** Every diagnosis and rhythm name in the content, for messages that only name one ("בצקת ריאות",
  *  "אסטמה קשה" — typos and a grade after the name forgiven). */
@@ -247,8 +247,10 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
     return { sim, understood: true };
   }
 
-  if (!items.length && /^\s*\S?\s*(אינהלציה|אינהלציות|נבולייזר|נבולייזר)\s*\??\s*$/.test(text)) {
-    out.text("אינהלציה של איזו תרופה ובאיזה מינון?");
+  // "אינהלציה", "מחברת האינהלציה": right after inhaled drugs it's that inhalation; otherwise, which drug?
+  if (!items.length && /^\s*\S?\s*(?:(?:מחבר|מחברת|מפעיל|מפעילה|מתחיל|מתחילה)\s+)?ה?(אינהלציה|אינהלציות|נבולייזר)\s*\??\s*$/.test(text)) {
+    const recent = sim.actions.some((a) => a.drug?.route === "neb" && sim.t - a.t <= 180);
+    out.text(recent ? "האינהלציה מחוברת ופועלת." : "אינהלציה של איזו תרופה ובאיזה מינון?");
     out.flush(sim);
     return { sim, understood: true };
   }
@@ -619,7 +621,7 @@ function giveDrug(content: Content, sim: Sim, item: Extract<ParsedItem, { kind: 
   if (item.value === null) {
     // The route said with the drug ("דורמיקום לשריר") still holds when the dose comes alone ("10 מג").
     sim.pending = { action: "drug", drug: item.drug, need: "dose", route: item.route };
-    out.text(`${def.name} — באיזה מינון?`);
+    out.text(item.range ? `${def.name} — איזה מינון בדיוק? (מספר אחד)` : `${def.name} — באיזה מינון?`);
     return;
   }
 

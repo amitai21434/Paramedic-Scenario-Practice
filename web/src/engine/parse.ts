@@ -8,7 +8,7 @@ import { ACTIONS, ASK_OR_EXAM, DRUGS, NEGATIONS, NOT_CARRIED, PER_KG, PER_MIN, R
 
 export type ParsedItem =
   | { kind: "action"; id: string; joules?: number; joulesPerKg?: boolean; phrase: string; withBag?: boolean }
-  | { kind: "drug"; drug: string; value: number | null; unit: string | null; route: string | null; phrase: string; conc?: number };
+  | { kind: "drug"; drug: string; value: number | null; unit: string | null; route: string | null; phrase: string; conc?: number; range?: boolean };
 
 export type Parsed = {
   items: ParsedItem[];
@@ -226,6 +226,7 @@ const DRAW_TOKENS = ["שאיבת", "שאיבה", "שואב", "שואבת", "לש
 /** Charging the defibrillator ("טעינת שוק 26 ג'ול") — for shocks only. */
 const CHARGE_TOKENS = ["טעינת", "טעינה", "טוען", "טוענת", "לטעון", "טוענים"].map(normalize);
 const GIVE_TOKENS = ["נותן", "נותנת", "לתת", "נותנים", "מזריק", "מזריקה", "להזריק", "מבצע", "מבצעת", "לבצע", "משתמש", "משתמשת", "להשתמש"].map(normalize);
+const RANGE = tokenize("טווחמינון")[0];
 const isUnitWord = (t: string) => UNIT_PHRASES.some((p) => p.tokens.length === 1 && variants(t).includes(p.tokens[0])) || PER_KG_TOKENS.some((k) => variants(t).includes(k));
 /** Where the "getting it ready" word is, up to two words before the item (a dose in between doesn't count:
  *  "שאיבה של 5.6 מג אטומידאט") — or -1, also when the same message gives it ("מכינה אדנוזין ונותנת בפוש"). */
@@ -501,6 +502,8 @@ function parseClauses(text: string): Parsed {
     }
     // A question and an order in one clause ("איך אתה מרגיש וחמצן", "זופרן 4 מג וכמה כואב עכשיו?"):
     // only the asking part is a question. "מתי נתתם ונטולין?" only asks; "חמצן, ויש אלרגיות?" still gives the oxygen.
+    // "האם יש סיפור של הרדמה והנשמה בעבר": a question about the past is one question, "ו" and all.
+    if (startsWithQuestionWord(clause) && PAST.test(clause)) return ask(clause, true);
     const segs = splitOnAnd(clause);
     segs.forEach((seg, i) => {
       if (startsWithQuestionWord(seg)) ask(seg, true);
@@ -514,6 +517,9 @@ function parseClauses(text: string): Parsed {
   out.items = out.items.filter((it, k, all) => it.kind === "drug" || REPEATABLE.includes(it.id) || all.findIndex((o) => o.kind === "action" && o.id === it.id) === k);
   return { ...out, statements };
 }
+
+/** Words that make a question about the past ("היה לו … בעבר?"). */
+const PAST = /בעבר|באבר|אי פעם|סיפור של|היסטוריה של/;
 
 /** Actions that are really done twice when named twice ("ניקור חזה, וניקור בצד השני"). */
 const REPEATABLE = ["needle", "shock", "sync"];
@@ -540,7 +546,7 @@ function splitOnAnd(clause: string): string[] {
   return segs.map((x) => x.join(" ")).filter(Boolean);
 }
 
-const QUESTION_WORDS = ["מתי", "ממתי", "האם", "כמה", "איזה", "איזו", "אילו", "למה", "מדוע", "באיזה", "באיזו", "מה", "איך", "איפה", "היכן"].map(normalize);
+const QUESTION_WORDS = ["העם", "מתי", "ממתי", "האם", "כמה", "איזה", "איזו", "אילו", "למה", "מדוע", "באיזה", "באיזו", "מה", "איך", "איפה", "היכן"].map(normalize);
 
 /** A clause asking something: ends with "?" or starts with a question word. */
 function isQuestion(clause: string): boolean {
@@ -575,7 +581,8 @@ function questionItems(items: ParsedItem[], keepActions = false): ParsedItem[] {
 const STOPPABLE = ["cpr", "lucas", "o2", "bvm", "pacing", "cpap"];
 
 function parseItems(text: string): Omit<Parsed, "statements"> {
-  const tokens = tokenize(text);
+  // "מגנזיום 25-50 מג לקג": a range isn't a dose — the drug asks for one number.
+  const tokens = tokenize(text.replace(/(\d+(?:[.,]\d+)?)\s*[-–]\s*(\d+(?:[.,]\d+)?)/g, " טווחמינון "));
   // "חמש מיליגרם", "אחד גרם": a number word before a unit is the number.
   for (let k = 0; k + 1 < tokens.length; k++) {
     const n = NUMBER_WORDS[tokens[k]];
@@ -601,6 +608,7 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
   };
   /** Does a drug start at k (after any route words)? */
   const drugAt = (k: number) => {
+    while (k < tokens.length && isUnitWord(tokens[k])) k++;
     while (k < tokens.length && bestAt(tokens, used, k, ROUTE_PHRASES, true)) k = bestAt(tokens, used, k, ROUTE_PHRASES, true)!.end;
     return k < tokens.length && bestAt(tokens, used, k, DRUG_PHRASES) !== null;
   };
@@ -679,10 +687,26 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
     let value: number | null = null;
     let unit: string | null = null;
     let route: string | null = null;
+    // A range right before the drug ("2-3 מג לקג של קטמין").
+    let range = false;
+    for (let k = m.start - 1; k >= 0 && !used[k] && (isUnitWord(tokens[k]) || tokens[k] === RANGE); k--) {
+      if (tokens[k] === RANGE) {
+        range = true;
+        mark(k, m.start);
+        break;
+      }
+    }
     // Look ahead a few tokens, stopping at the next drug.
     for (let j = m.end; j < Math.min(tokens.length, m.end + 8); j++) {
-      if (used[j]) continue;
+      if (used[j] || range) continue;
       if (bestAt(tokens, used, j, DRUG_PHRASES)?.cost === 0) break;
+      if (tokens[j] === RANGE) {
+        // (with doses written before each drug, a range after this one is the next drug's)
+        if (before && drugAt(j + 1)) break;
+        range = true;
+        mark(j, j + 1);
+        break;
+      }
       if (value === null) {
         const q = readQuantity(tokens, used, j);
         // With doses written before each drug, the one after this drug is the next drug's.
@@ -717,7 +741,7 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       const next = bestAt(tokens, used, j, ACTION_PHRASES);
       if (next?.cost === 0 && next.phrase.key !== "askWeight") break;
     }
-    if (value === null && before && !used[before.j]) {
+    if (value === null && !range && before && !used[before.j]) {
       value = before.q.value;
       unit = before.q.unit;
       mark(before.j, before.q.end);
@@ -752,7 +776,7 @@ function parseItems(text: string): Omit<Parsed, "statements"> {
       skip();
       continue;
     }
-    found.push({ pos: m.start, item: { kind: "drug", drug: m.phrase.key, value, unit, route, phrase: m.phrase.text } });
+    found.push({ pos: m.start, item: { kind: "drug", drug: m.phrase.key, value, unit, route, phrase: m.phrase.text, ...(range ? { range } : {}) } });
     skip();
   }
 

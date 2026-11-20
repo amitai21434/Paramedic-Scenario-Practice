@@ -26,6 +26,7 @@ const UNGUESSABLE = [
   "‏מחל", "‏בטי", "ת", "סיו", "שתתן", "שויפה", "שאיבת תאופו", "צוות ננוסףוריד", "נדעמות", "לחיצות חז", "יןפי", "גוף זריצ?", "Pra",
   "חדד לאסטמה בינונית", "האם צרד", "האם המשפחה רוצה הלוואה",
   "6 מ״ג", "1 ג", "0.5 מג", "0.5", "מג", "מ הנה קרה", "מרקו 2.0 מג",
+  "קפהו", "הכנת coap", "מבעט ראשוני של המטופל", "נותנת", "תביא לי אותו תרחיש הקודם",
   "מונשמת", "מה לעשות", "למחוק", "חולה", "בדיקות", "אוויר קר", "חשיפה לאוויר קר",
 ];
 
@@ -154,6 +155,23 @@ describe.skipIf(!hasContent)("real runs", () => {
 
   it("a drug this storyline doesn't use gets a warning, not a wrong-dose error", () => {
     expect(run(57).d.errors.filter((e) => e.text.startsWith("אדרנלין"))).toEqual([]);
+  });
+
+  // Runs 74–81 (74–76 tester B, 77–81 tester A).
+  it("'בודקת A-B-C' checks airway, breathing and pulse; 'סקשין' suctions; 'ליבש' and 'להרים רגלים' are done", () => {
+    const r77 = run(77);
+    expect(r77.replies["בודקת ABC"]).toMatch(/נתיב אוויר:[^]*נשימה:[^]*דופק:/);
+    expect(r77.d.checklist.find((c) => c.label.startsWith("מניעת היפותרמיה"))!.doneAt).not.toBeNull();
+    expect(r77.replies["להרים רגלים"]).toMatch(/הושכבה/);
+    expect(did(run(81).sim, "suction")).toBe(true);
+  });
+
+  it("a dose range asks for one number; a question about the past doesn't bag the patient", () => {
+    const r80 = run(80);
+    expect(r80.replies["לתת מגנזיום 25-50 גרם לקג"]).toMatch(/מינון בדיוק/);
+    expect(doses(r80.sim, "etomidate")[0]).toMatchObject({ value: 0.3, unit: "mg/kg" });
+    expect(r80.replies["האם יש סיפור של הרדמה והנשמה באבר בגלל האסתמה."]).not.toMatch(/מנשימים/);
+    expect(r80.replies["העם יש קושי בהנשמה?"]).not.toMatch(/מנשימים/);
   });
 
   it("'how do you feel?' after the treatment worked gets an honest answer; weight comes from the parent", () => {
