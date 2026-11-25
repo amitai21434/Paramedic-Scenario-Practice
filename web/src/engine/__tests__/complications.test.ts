@@ -344,13 +344,14 @@ describe.skipIf(!hasContent)("complications", () => {
     expect(d.errors.some((e) => e.text.includes("אדרנלין"))).toBe(false);
   });
 
-  it("nothing reacts when the patient isn't allergic, and drugs get no ✔ confirmation", () => {
+  it("nothing reacts when the patient isn't allergic; a given drug gets a plain 'given' line, never a ✔", () => {
     const t = content.cases.find((c) => c.id === "fracture")!;
     let seed = 1;
     while (generate(t, seed).allergyDrug) seed++;
     const sim = run(startSim(content, "fracture", seed), ["פותח וריד", "פנטניל 60 מקג IV"]);
     expect(sim.comp ?? null).toBeNull();
-    expect(sim.messages.some((m) => "text" in m && /✔|ניתן\./.test(m.text))).toBe(false);
+    expect(sim.messages.some((m) => "text" in m && /✔/.test(m.text))).toBe(false);
+    expect(sim.messages.some((m) => "text" in m && /^💉 פנטניל 60 .* — ניתן.$/m.test(m.text))).toBe(true);
   });
 
   it("errors take 10 points each off the score", () => {

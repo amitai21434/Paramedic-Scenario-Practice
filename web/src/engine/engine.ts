@@ -658,9 +658,10 @@ function giveDrug(content: Content, sim: Sim, item: Extract<ParsedItem, { kind: 
   sim.actions.push({ action: `drug:${item.drug}`, t: sim.t, state: sim.state, drug: given });
   if (SEDATIVES.includes(item.drug)) setFlag(sim, "sedated");
 
-  // No "given ✔" reply: the chips under the message already show what was understood,
-  // and a confirmation reads like approval. Only real effects get a reply (from the rules).
+  // A plain "given" line — without one, students re-ordered drugs that had gone in. It says what was given,
+  // never whether it was right (that's for the debrief).
   const shown = `${def.name} ${item.value} ${unitLabel(unit)}${route ? ` ${ROUTE_LABELS[route] ?? route}` : ""}`;
+  out.text(`💉 ${shown} — ניתן.`);
   checkDrug(content, sim, rule, given, priorSame, shown);
   // A drug the patient is allergic to causes a reaction (when no other complication is running).
   if (sim.case.allergyDrug === item.drug && !sim.comp) startComplication(content, sim, "allergicReaction", out);
