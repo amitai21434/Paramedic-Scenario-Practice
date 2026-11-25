@@ -27,6 +27,7 @@ const UNGUESSABLE = [
   "חדד לאסטמה בינונית", "האם צרד", "האם המשפחה רוצה הלוואה",
   "6 מ״ג", "1 ג", "0.5 מג", "0.5", "מג", "מ הנה קרה", "מרקו 2.0 מג",
   "קפהו", "הכנת coap", "מבעט ראשוני של המטופל", "נותנת", "תביא לי אותו תרחיש הקודם",
+  "דופר", "בקשן",
   "מונשמת", "מה לעשות", "למחוק", "חולה", "בדיקות", "אוויר קר", "חשיפה לאוויר קר",
 ];
 
@@ -172,6 +173,19 @@ describe.skipIf(!hasContent)("real runs", () => {
     expect(doses(r80.sim, "etomidate")[0]).toMatchObject({ value: 0.3, unit: "mg/kg" });
     expect(r80.replies["האם יש סיפור של הרדמה והנשמה באבר בגלל האסתמה."]).not.toMatch(/מנשימים/);
     expect(r80.replies["העם יש קושי בהנשמה?"]).not.toMatch(/מנשימים/);
+  });
+
+  // Runs 82–83 (tester B).
+  it("a drug drawn up without a dose asks for one, and that dose is drawn up — not given", () => {
+    const r = run(82);
+    expect(r.replies["שאיבת אטומידייט"]).toMatch(/באיזה מינון/);
+    expect(r.replies["2 מ״ג/קג"]).toMatch(/מוכן לשימוש: אטומידאט 2/);
+  });
+
+  it("heatstroke: 'כיסוי' doesn't warm the patient; a saline dose answered in mg/kg is ml/kg", () => {
+    const r = run(83);
+    expect(did(r.sim, "warm")).toBe(false);
+    expect(doses(r.sim, "saline")[0]).toMatchObject({ value: 20, unit: "ml/kg" });
   });
 
   it("'how do you feel?' after the treatment worked gets an honest answer; weight comes from the parent", () => {

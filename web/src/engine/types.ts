@@ -400,7 +400,7 @@ export type Sim = {
   /** Seconds without a pulse and without CPR. */
   noFlow: number;
   /** The engine asked for a missing detail (e.g. a dose); the next message may answer it. */
-  pending: { action: string; drug?: string; need: "dose" | "joules"; route?: string | null } | null;
+  pending: { action: string; drug?: string; need: "dose" | "joules"; route?: string | null; prepare?: boolean } | null;
   messages: Message[];
   /** States entered so far, in order. */
   visited: string[];

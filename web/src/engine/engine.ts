@@ -201,6 +201,15 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
   // "באיזה מינון?" → "300 מג"
   if (!items.length && sim.pending && parsed.bare) {
     const p = sim.pending;
+    // A drug drawn up without a dose ("שאיבת אטומידאט" → "באיזה מינון?" → "0.2 מג לקג"): the dose is drawn, not given.
+    if (p.prepare && p.drug) {
+      const drawn = { drug: p.drug, value: parsed.bare.value, unit: parsed.bare.unit, route: parsed.bare.route ?? null };
+      sim.prepared = [...(sim.prepared ?? []).filter((x) => x.drug !== p.drug), drawn];
+      sim.pending = null;
+      out.text(`🧰 מוכן לשימוש: ${drugDef(p.drug).name} ${drawn.value} ${unitLabel(drawn.unit ?? drugDef(p.drug).unit)}.`);
+      out.flush(sim, t0);
+      return { sim, understood: true };
+    }
     items =
       p.need === "dose" && p.drug
         ? [{ kind: "drug", drug: p.drug, value: parsed.bare.value, unit: parsed.bare.unit, route: parsed.bare.route ?? p.route ?? null, phrase: "" }]
@@ -236,6 +245,12 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
     return p ? `${name} ${p.value} ${unitLabel(p.unit ?? drugDef(k).unit)}` : name;
   });
   if (ready.length) out.text(`🧰 מוכן לשימוש: ${ready.join(", ")}.`);
+  // Drawn up with no dose said: ask how much (the answer is drawn up, not given).
+  const undosed = !items.length ? parsed.preparedDrugs?.find((p) => p.value === null) : undefined;
+  if (undosed) {
+    sim.pending = { action: "drug", drug: undosed.drug, need: "dose", route: undosed.route, prepare: true };
+    out.text(`${drugDef(undosed.drug).name} — באיזה מינון?`);
+  }
   // "הפסק אמבו", "הפסקת הרטמן": stopped.
   for (const k of new Set(parsed.stopped ?? [])) {
     const drug = DRUGS.find((d) => d.id === k);
@@ -277,6 +292,8 @@ export function step(content: Content, prev: Sim, text: string): StepResult {
 
   // Drying and wrapping is the newborn manoeuvre only where there is a newborn; for anyone else it's warming.
   if (!JSON.stringify(sim.case.template).includes('"dryBaby"')) items = items.map((it) => (it.kind === "action" && it.id === "dryBaby" ? { ...it, id: "warm" } : it));
+  // Where the patient needs cooling (heatstroke), "כיסוי" is covering with wet sheets — not blankets.
+  if (JSON.stringify(sim.case.template).includes('"cooling"')) items = items.map((it) => (it.kind === "action" && it.id === "warm" && /^(כיסוי|מכסה)/.test(it.phrase) ? { ...it, id: "cool" } : it));
 
   // "גלוקוז 10% 250 מל" is 25 g: with a stated strength the volume is checked as grams.
   items = items.map((it) => (it.kind === "drug" && it.conc && it.unit === "ml" && it.value !== null ? { ...it, value: Math.round(it.value * it.conc * 100) / 100, unit: "g" } : it));
@@ -607,14 +624,16 @@ function giveDrug(content: Content, sim: Sim, item: Extract<ParsedItem, { kind: 
   const rule = drugRule(content, sim, item.drug);
   // A bare number means the drug's usual unit: "קטמין 50" is 50 mg, but "דופמין 10" is 10 mcg/kg/min.
   // A drug drawn up earlier ("שאיבת אדרנלין 1 מג") is given at that dose when named again ("הזרקת אדרנלין").
+  // Fluids are measured in ml: a dose answered "20 מג לקג" for saline is a slip for ml.
+  if (item.drug === "saline" && item.unit?.startsWith("mg")) item = { ...item, unit: item.unit.replace(/^mg/, "ml") };
   const drawn = sim.prepared?.find((p) => p.drug === item.drug);
-  if (drawn) {
-    sim.prepared = sim.prepared!.filter((p) => p !== drawn);
-    if (item.value === null && drawn.value !== null) {
-      item = { ...item, value: drawn.value, unit: drawn.unit, route: item.route ?? drawn.route };
-      out.text(`${def.name} ${drawn.value} ${unitLabel(drawn.unit ?? def.unit)} — המנה שהוכנה.`);
-    }
+  // Named again without a dose, it asks — reminding what was drawn up ("הזרקת התרופות" gives the drawn doses).
+  if (drawn && item.value === null && drawn.value !== null) {
+    sim.pending = { action: "drug", drug: item.drug, need: "dose", route: item.route ?? drawn.route };
+    out.text(`${def.name} — באיזה מינון? (הוכן: ${drawn.value} ${unitLabel(drawn.unit ?? def.unit)})`);
+    return;
   }
+  if (drawn && item.value !== null) sim.prepared = sim.prepared!.filter((p) => p !== drawn);
   const usual = rule?.unit ?? def.unit;
   const unit = item.unit ?? (usual.includes("/min") ? usual : usual.replace("/kg", ""));
 
@@ -1110,6 +1129,7 @@ function perform(content: Content, sim: Sim, item: ParsedItem, out: Output) {
       // "הזרקת התרופות": the drugs drawn up earlier, at their doses.
       const ready = (sim.prepared ?? []).filter((p) => p.value !== null);
       if (!ready.length) return say("אילו תרופות ובאיזה מינון?");
+      sim.prepared = (sim.prepared ?? []).filter((p) => p.value === null);
       for (const p of ready) giveDrug(content, sim, { kind: "drug", ...p, phrase: "" }, out);
       return;
     }
